@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: ['pg'],
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -9,8 +10,8 @@ const nextConfig = {
   async rewrites() {
     return {
       beforeFiles: [
-        { source: '/', destination: '/ar/index.html' },
         { source: '/share', destination: '/ar/share.html' },
+        { source: '/bridge.py', destination: '/api/bridge' },
       ],
     }
   },

@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation"
+import { PairingScreen } from '@/components/pairing-screen'
 
 export default function Page() {
-  redirect("/ar/index.html")
+  return <PairingScreen />
 }
