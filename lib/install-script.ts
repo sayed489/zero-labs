@@ -69,7 +69,7 @@ JSON
   fi
   if ! curl -sf "http://127.0.0.1:8473/api/ping" >/dev/null 2>&1; then
     echo "→ starting agentremoted on 127.0.0.1:8473"
-    nohup env PYTHONPATH="\$FORGE_HOME/agent-remote/daemon" AGENTREMOTED_HOME="\$HOME/.agentremoted" python3 -m agentremoted \\
+    nohup env PYTHONPATH="\$FORGE_HOME/agent-remote/daemon" AGENTREMOTED_HOME="\$HOME/.agentremoted" python3 -m agentremoted --bind 127.0.0.1 --port 8473 \\
       >> "\$FORGE_HOME/daemon.log" 2>&1 &
     echo \$! > "\$FORGE_HOME/daemon.pid"
     sleep 2

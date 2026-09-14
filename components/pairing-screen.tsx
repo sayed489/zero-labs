@@ -2,12 +2,44 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckIcon, CopyIcon, LaptopIcon, TerminalIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, LaptopIcon, TerminalIcon, TriangleAlertIcon } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 
 const SESSION_KEY = 'forge.v1'
+const APP_URL_KEY = 'forge.appUrl'
+
+function normalizeOrigin(value: string) {
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (!trimmed) return ''
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  try {
+    return new URL(withScheme).origin
+  } catch {
+    return ''
+  }
+}
+
+// v0 preview hosts sit behind the chat's session, so an unauthenticated laptop
+// gets a login page instead of the installer.
+function isPrivateOrigin(origin: string) {
+  try {
+    const { hostname } = new URL(origin)
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.v0.build') ||
+      hostname.endsWith('.v0.app') ||
+      hostname.endsWith('.vercel.run')
+    )
+  } catch {
+    return false
+  }
+}
 
 type PairSession = {
   code: string
@@ -26,9 +58,15 @@ export function PairingScreen() {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [origin, setOrigin] = useState('')
+  const [appUrl, setAppUrl] = useState('')
+  const [urlDraft, setUrlDraft] = useState('')
 
   useEffect(() => {
-    setOrigin(window.location.origin)
+    const current = window.location.origin
+    setOrigin(current)
+    const saved = normalizeOrigin(localStorage.getItem(APP_URL_KEY) || '')
+    setAppUrl(saved || current)
+    setUrlDraft(saved || current)
     const existing = readSession()
     if (existing?.code && existing.phoneSecret) {
       setSession(existing)
@@ -108,9 +146,26 @@ export function PairingScreen() {
   }
 
   const command = useMemo(() => {
-    if (!origin || !session?.code) return ''
-    return `curl -fsSL ${origin}/install | bash -s -- ${session.code}`
-  }, [origin, session?.code])
+    if (!appUrl || !session?.code) return ''
+    return `curl -fsSL ${appUrl}/install -o /tmp/forge-install.sh && grep -q '^#!/usr/bin/env bash' /tmp/forge-install.sh && bash /tmp/forge-install.sh ${session.code} || echo "Installer fetch failed — is ${appUrl} public?"`
+  }, [appUrl, session?.code])
+
+  function commitAppUrl() {
+    const next = normalizeOrigin(urlDraft)
+    if (!next) {
+      setUrlDraft(appUrl)
+      return
+    }
+    setAppUrl(next)
+    setUrlDraft(next)
+    localStorage.setItem(APP_URL_KEY, next)
+  }
+
+  function useCurrentOrigin() {
+    setAppUrl(origin)
+    setUrlDraft(origin)
+    localStorage.removeItem(APP_URL_KEY)
+  }
 
   async function copyCommand() {
     if (!command) return
@@ -124,6 +179,7 @@ export function PairingScreen() {
   }
 
   const connected = status === 'online'
+  const privateOrigin = Boolean(appUrl) && isPrivateOrigin(appUrl)
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-xl flex-col justify-center gap-8 px-6 py-10">
@@ -144,6 +200,43 @@ export function PairingScreen() {
         </div>
         <p className="font-mono text-3xl tracking-[0.14em] sm:text-4xl">{session?.code || '————-————'}</p>
         <p className="text-xs text-muted-foreground">Expires in 10 minutes if unused. Keep this tab open.</p>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs tracking-wide text-muted-foreground uppercase">App URL</p>
+          {appUrl !== origin ? (
+            <Button size="sm" variant="ghost" onClick={useCurrentOrigin}>
+              Use this page
+            </Button>
+          ) : null}
+        </div>
+        <Input
+          value={urlDraft}
+          onChange={(event) => setUrlDraft(event.target.value)}
+          onBlur={commitAppUrl}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commitAppUrl()
+          }}
+          spellCheck={false}
+          autoComplete="off"
+          aria-label="Public app URL the laptop should call"
+          placeholder="https://your-app.vercel.app"
+        />
+        {privateOrigin ? (
+          <Alert variant="destructive">
+            <TriangleAlertIcon />
+            <AlertTitle>This URL is private</AlertTitle>
+            <AlertDescription>
+              The preview URL only answers while you are signed in to v0, so the laptop receives a
+              login page instead of the installer. Publish the app, then paste its public URL here.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            The laptop calls this URL, so it has to be reachable without signing in.
+          </p>
+        )}
       </section>
 
       <section className="flex flex-col gap-3">
