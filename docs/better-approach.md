@@ -2,6 +2,12 @@
 
 Companion to `docs/research-findings.md`. This is the architecture to build.
 
+**Superseded for implementation by:**
+
+- `docs/production-research.md` — why Vercel cannot hold the laptop pipe, Durable Objects, pairing
+- `docs/forge-architecture.md` — locked Forge architecture (sidecar, not a daemon fork)
+- `docs/forge-build-prompt.md` — phase-gated execution prompt (paste this to build)
+
 ## The one-sentence change
 
 **Stop making users open a hole into their laptop (tunnel). Make the laptop
