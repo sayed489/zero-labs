@@ -3,9 +3,12 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'Agent Remote',
+  description:
+    'Control Claude Code, Codex, Grok, and DeepSeek sessions from your phone. Self-hosted daemon, no token resale.',
   generator: 'v0.app',
+  applicationName: 'Agent Remote',
+  keywords: ['Claude Code', 'Codex', 'Grok', 'remote', 'daemon'],
   icons: {
     icon: [
       {
@@ -26,11 +29,10 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'light dark',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
-  ],
+  colorScheme: 'dark',
+  themeColor: '#0b0b0d',
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({
