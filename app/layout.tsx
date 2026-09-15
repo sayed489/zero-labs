@@ -3,9 +3,11 @@ import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Forge',
-  description:
-    'Visit the site, run one command on your laptop, control Claude Code from your phone. No signup.',
+  title: {
+    default: 'Forge — your coding agents, anywhere',
+    template: '%s · Forge',
+  },
+  description: 'Securely control Claude and Codex sessions running on your laptop from any browser.',
   generator: 'v0.app',
   applicationName: 'Forge',
 }

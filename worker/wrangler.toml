@@ -22,3 +22,4 @@ new_sqlite_classes = ["DeviceRelay"]
 # Comma-separated browser origins allowed to call this Worker directly.
 # The Vercel app normally proxies through /api/relay, so this is a fallback.
 ALLOWED_ORIGINS = "http://localhost:3000"
+APP_URL = "http://localhost:3000"

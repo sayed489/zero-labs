@@ -656,8 +656,8 @@ async function call(profile, path, { method = "GET", body, timeout = 30000, raw 
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
-      // Token auth, no cookies — see the daemon's _cors_headers.
-      credentials: "omit",
+// Forge uses a first-party HttpOnly account session for the relay proxy.
+  credentials: "same-origin",
       cache: "no-store",
     });
     if (raw) {
@@ -1397,7 +1397,7 @@ async function streamSearch(profile, path, onHit, gen, timeout = 45000) {
       method: "GET",
       headers: { "X-Auth-Token": profile.token, Accept: "application/x-ndjson" },
       signal: ctrl.signal,
-      credentials: "omit",
+      credentials: "same-origin",
       cache: "no-store",
     });
     if (!res.ok) {

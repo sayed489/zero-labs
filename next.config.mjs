@@ -1,12 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ['pg'],
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  images: {
-    unoptimized: true,
-  },
+
   async rewrites() {
     return {
       beforeFiles: [
@@ -30,15 +24,10 @@ const nextConfig = {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=()',
           },
-        ],
-      },
-      {
-        source: '/install',
-        headers: [
-          { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           {
-            key: 'Cache-Control',
-            value: 'public, max-age=300, must-revalidate',
+            key: 'Content-Security-Policy-Report-Only',
+            value: "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
           },
         ],
       },

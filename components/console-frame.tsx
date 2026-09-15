@@ -1,104 +1,97 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import useSWR from 'swr'
 import { Badge } from '@/components/ui/badge'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 
-const SESSION_KEY = 'forge.v1'
 const PROFILE_KEY = 'agentremote.profiles'
 
-type PairSession = {
-  code: string
-  phoneSecret: string
-  deviceId?: string
-  hostname?: string
-  daemonOk?: boolean
+type Device = {
+  id: string
+  name: string | null
+  platform: string | null
+  online: boolean
+  daemonOk: boolean
 }
 
-export function ConsoleFrame() {
+async function fetcher<T>(url: string): Promise<T> {
+  const response = await fetch(url, { cache: 'no-store' })
+  const data = await response.json().catch(() => ({})) as T & { error?: string }
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Request failed'), { status: response.status })
+  return data
+}
+
+export function ConsoleFrame({ requestedDeviceId }: { requestedDeviceId: string }) {
   const router = useRouter()
-  const [ready, setReady] = useState(false)
-  const [online, setOnline] = useState(false)
-  const [daemonOk, setDaemonOk] = useState(false)
-  const [hostname, setHostname] = useState('Laptop')
+  const { data, error, isLoading } = useSWR<{ devices: Device[] }>('/api/relay/devices', fetcher)
+  const device = useMemo(
+    () => data?.devices.find((item) => item.id === requestedDeviceId) || data?.devices[0],
+    [data, requestedDeviceId]
+  )
+  const { data: status } = useSWR<Device>(
+    device ? `/api/relay/devices/${encodeURIComponent(device.id)}` : null,
+    fetcher,
+    { refreshInterval: 4_000 }
+  )
 
   useEffect(() => {
-    const raw = localStorage.getItem(SESSION_KEY)
-    if (!raw) {
-      router.replace('/')
-      return
-    }
-    const session = JSON.parse(raw) as PairSession
-    if (!session.deviceId || !session.phoneSecret) {
-      router.replace('/')
-      return
-    }
-    setHostname(session.hostname || 'Laptop')
+    if (error && (error as { status?: number }).status === 401) router.replace('/')
+  }, [error, router])
+
+  useEffect(() => {
+    if (!device) return
     const origin = window.location.origin
-    localStorage.setItem(
-      PROFILE_KEY,
-      JSON.stringify({
-        profiles: [
-          {
-            id: session.deviceId,
-            name: session.hostname || 'Laptop',
-            baseUrl: `${origin}/d/${session.deviceId}`,
-            token: session.phoneSecret,
-            enabled: true,
-          },
-        ],
-        settings: {},
-      })
-    )
-    setReady(true)
+    localStorage.setItem(PROFILE_KEY, JSON.stringify({
+      profiles: [{
+        id: device.id,
+        name: device.name || 'Laptop',
+        baseUrl: `${origin}/d/${device.id}`,
+        token: 'account-session',
+        enabled: true,
+      }],
+      settings: {},
+    }))
+  }, [device])
 
-    const tick = async () => {
-      const response = await fetch(`/api/devices/${session.deviceId}`, {
-        headers: { Authorization: `Bearer ${session.phoneSecret}` },
-        cache: 'no-store',
-      })
-      if (!response.ok) return
-      const data = await response.json()
-      setOnline(Boolean(data.online))
-      setDaemonOk(Boolean(data.daemonOk))
-      if (data.hostname) setHostname(data.hostname)
-    }
-    void tick()
-    const timer = setInterval(() => void tick(), 2500)
-    return () => clearInterval(timer)
-  }, [router])
-
-  if (!ready) {
+  if (isLoading) {
+    return <main className="flex min-h-svh items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading console…</main>
+  }
+  if (!device) {
     return (
-      <main className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
-        Loading console…
+      <main className="flex min-h-svh flex-col items-center justify-center gap-4 px-5 text-center">
+        <p className="font-medium">No laptop is paired with this account.</p>
+        <Link className={buttonVariants()} href="/">Pair a laptop</Link>
       </main>
     )
   }
 
+  const current = status || device
   return (
     <div className="flex h-svh flex-col bg-background">
-      <header className="flex items-center justify-between gap-3 border-b border-foreground/10 px-4 py-2">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="font-mono text-[11px] tracking-[0.28em] text-muted-foreground">
-            FORGE
-          </Link>
-          <span className="text-sm">{hostname}</span>
-          <Badge variant={online ? 'default' : 'secondary'}>{online ? 'Online' : 'Offline'}</Badge>
-          <Badge variant={daemonOk ? 'secondary' : 'outline'}>
-            {daemonOk ? 'Daemon' : 'Daemon starting'}
+      <header className="flex items-center justify-between gap-3 border-b border-foreground/10 px-3 py-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <Link href="/" className="font-mono text-[11px] tracking-[0.2em] text-primary sm:tracking-[0.28em]">FORGE</Link>
+          <span className="max-w-32 truncate text-sm sm:max-w-none">{current.name || 'Laptop'}</span>
+          <Badge variant={current.online ? 'default' : 'secondary'}>{current.online ? 'Online' : 'Offline'}</Badge>
+          <Badge className="hidden sm:inline-flex" variant={current.daemonOk ? 'secondary' : 'outline'}>
+            {current.daemonOk ? 'Daemon ready' : 'Daemon starting'}
           </Badge>
         </div>
-        <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
-          Pairing
-        </Link>
+        <Link href="/" className="shrink-0 text-sm text-muted-foreground hover:text-foreground">Devices</Link>
       </header>
-      <iframe
-        title="Agent Remote"
-        src="/ar/index.html"
-        className="size-full border-0 bg-background"
-      />
+      {current.online ? (
+        <iframe key={device.id} title="Agent Remote" src="/ar/index.html" className="size-full border-0 bg-background" />
+      ) : (
+        <main className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center">
+          <p className="font-medium">Laptop is offline</p>
+          <p className="max-w-sm text-sm text-muted-foreground">Start the Forge service on the laptop, then this console will reconnect automatically.</p>
+          <Button variant="outline" onClick={() => window.location.reload()}>Try again</Button>
+        </main>
+      )}
     </div>
   )
 }

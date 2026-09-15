@@ -15,6 +15,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key      TEXT PRIMARY KEY,
+  count    INTEGER NOT NULL,
+  reset_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS devices (
   id                TEXT PRIMARY KEY,
   user_id           TEXT NOT NULL,
@@ -40,6 +46,7 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
   created_at        INTEGER NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits (reset_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions (token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_devices_user ON devices (user_id);

@@ -64,8 +64,20 @@ export function randomToken(bytes = 32): string {
 }
 
 export async function sha256Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(input))
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  const bytes = await crypto.subtle.digest('SHA-256', encoder.encode(input))
+  return b64url(bytes)
+}
+
+export async function hmacHex(input: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(input))
+  return b64url(signature)
 }
 
 export function timingSafeEqual(a: string, b: string): boolean {
@@ -75,7 +87,7 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
-const PBKDF2_ITERATIONS = 100_000
+const PBKDF2_ITERATIONS = 310_000
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16))

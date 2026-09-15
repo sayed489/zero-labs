@@ -2,6 +2,8 @@ export interface Env {
   DB: D1Database
   DEVICE: DurableObjectNamespace
   WORKER_PROXY_SECRET: string
+  BETTER_AUTH_SECRET: string
+  APP_URL: string
   ALLOWED_ORIGINS: string
 }
 
