@@ -1,0 +1,24 @@
+name = "forge-relay"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Created by: npx wrangler d1 create forge
+# Paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "forge"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[durable_objects.bindings]]
+name = "DEVICE"
+class_name = "DeviceRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DeviceRelay"]
+
+[vars]
+# Comma-separated browser origins allowed to call this Worker directly.
+# The Vercel app normally proxies through /api/relay, so this is a fallback.
+ALLOWED_ORIGINS = "http://localhost:3000"
