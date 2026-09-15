@@ -19,7 +19,7 @@ get_messages) never filter, so a link to any session still resolves.
             blocks}]} | None
 
 Runner — how one turn is executed as a subprocess (used by jobs.JobManager):
-    name                                  "claude" | "grok" | "codex" | "deepseek"
+    name                      "claude" | "grok" | "codex" | "cursor" | "antigravity" | "deepseek"
     capabilities() -> dict                feature flags for /api/ping
     auth_health() -> dict                 optional CLI/login snapshot for /api/ping
     slash_commands() -> [str]             commands offered to the app
@@ -77,6 +77,13 @@ def build_one(config, name: str):
     elif name == "codex":
         from .codex import CodexRunner, CodexStore
         store, runner = CodexStore(config.codex_home_path, config), CodexRunner(config)
+    elif name == "cursor":
+        from .cursor import CursorRunner, CursorStore
+        store, runner = CursorStore(config.cursor_home_path, config), CursorRunner(config)
+    elif name in ("antigravity", "agy"):
+        from .antigravity import AntigravityRunner, AntigravityStore
+        store = AntigravityStore(config.antigravity_home_path, config)
+        runner = AntigravityRunner(config)
     elif name in ("deepseek", "dsh"):
         from .deepseek import DeepseekRunner, DeepseekStore
         from .dsh_host import DshHost
@@ -89,8 +96,8 @@ def build_one(config, name: str):
             store.titler = titler
         return store, runner
     raise ValueError(
-        "unknown provider %r (expected 'claude', 'grok', 'codex', or 'deepseek')"
-        % name)
+        "unknown provider %r (expected 'claude', 'grok', 'codex', 'cursor', "
+        "'antigravity', or 'deepseek')" % name)
 
 
 def build(config):

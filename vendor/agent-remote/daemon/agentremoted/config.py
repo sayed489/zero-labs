@@ -5,8 +5,8 @@ Everything lives under ~/.agentremoted/ (override with AGENTREMOTED_HOME):
     token        — shared secret clients must present (auto-generated)
     daemon.log   — log file when running under launchd/systemd
 
-Recommended config uses ``"providers": ["claude", "grok", "codex"]`` (one
-process, every harness). A lone ``"provider"`` string still works as a
+Recommended config uses ``"providers": ["claude", "codex", "cursor", "antigravity"]``
+(one process, every harness). A lone ``"provider"`` string still works as a
 fallback when ``providers`` is empty.
 """
 
@@ -153,7 +153,8 @@ def ensure_tmux_server(tmux_bin: str) -> None:
 DEFAULTS = {
     # Fallback when "providers" is empty / missing.
     "provider": "claude",
-    # Preferred: list of harness names served by this process.
+    # Preferred: list of harnesses served by this process. The Forge installer
+    # enables Claude, Codex, Cursor, and Antigravity explicitly.
     "providers": [],
     # Network. The BB10 browser stack tops out at TLS 1.0/1.2 with old ciphers,
     # so the daemon speaks plain HTTP by default and relies on the shared
@@ -194,6 +195,7 @@ DEFAULTS = {
     # How long to wait for the phone to answer a question panel. 0 = forever.
     "question_timeout": 0,
     "claude_env": {},
+    "claude_default_cwd": str(Path.home()),
 
     # ---- grok provider --------------------------------------------------
     "grok_home": str(Path.home() / ".grok"),
@@ -212,6 +214,20 @@ DEFAULTS = {
     "codex_sandbox": "danger-full-access",
     # Extra flags for every `codex exec` (whitespace-split).
     "codex_exec_flags": "",
+    "codex_default_cwd": str(Path.home()),
+
+    # ---- cursor provider ------------------------------------------------
+    "cursor_home": str(Path.home() / ".cursor"),
+    "cursor_bin": "cursor-agent",
+    "cursor_env": {},
+    "cursor_default_cwd": str(Path.home()),
+
+    # ---- antigravity provider ------------------------------------------
+    "antigravity_home": str(Path.home() / ".config" / "antigravity"),
+    "antigravity_bin": "agy",
+    "antigravity_env": {},
+    "antigravity_default_cwd": str(Path.home()),
+    "antigravity_settings_path": "",
 
     # ---- deepseek harness (dsh web on localhost) ------------------------
     # The official UI is `npx @deepseek-ai/dsh web`. Agent Remote talks to
@@ -247,6 +263,14 @@ class Config:
     @property
     def codex_home_path(self) -> Path:
         return Path(self._data["codex_home"]).expanduser()
+
+    @property
+    def cursor_home_path(self) -> Path:
+        return Path(self._data["cursor_home"]).expanduser()
+
+    @property
+    def antigravity_home_path(self) -> Path:
+        return Path(self._data["antigravity_home"]).expanduser()
 
     @property
     def upload_path(self) -> Path:

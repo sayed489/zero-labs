@@ -1684,9 +1684,8 @@ class CodexRunner:
 
     def prepare(self, job, mode):
         # `mode` is claude vocabulary; codex uses sandbox / bypass flags.
-        if not job.cwd:
-            raise providers.RunnerError("cwd is required for codex sessions")
-        cwd = os.path.expanduser(job.cwd)
+        cwd = os.path.expanduser(job.cwd or getattr(
+            self.config, "codex_default_cwd", "") or str(Path.home()))
         if not os.path.isdir(cwd):
             raise providers.RunnerError("cwd does not exist: %s" % cwd)
         job.cwd = cwd

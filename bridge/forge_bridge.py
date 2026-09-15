@@ -24,6 +24,9 @@ except ImportError:
 CONFIG_PATH = Path(os.environ.get("FORGE_CONFIG", str(Path.home() / ".forge" / "config.json")))
 DEFAULT_DAEMON_URL = "http://127.0.0.1:8473"
 MAX_RESPONSE_BYTES = 2_000_000
+STREAM_IDLE_SECONDS = 60
+STREAM_MAX_SECONDS = 60 * 60
+STREAM_CHUNK_BYTES = 16 * 1024
 
 
 def load_config():
@@ -100,7 +103,7 @@ def jobs_snapshot(config, token):
     return {"active": []}
 
 
-def run_job(job, config, token):
+def run_job(job, config, token, emit=None):
     job_id = str(job.get("id") or "")
     path = str(job.get("path") or "/")
     if not path.startswith("/") or path.startswith("/internal"):
@@ -119,40 +122,54 @@ def run_job(job, config, token):
         headers["X-Auth-Token"] = token
     body = job.get("body")
     data = None if body is None else str(body).encode("utf-8")
+    request = urllib.request.Request(url, data=data, method=method)
+    request.add_header("User-Agent", "forge-bridge/2.0")
+    for key, value in headers.items():
+        request.add_header(key, value)
 
     try:
-        request = urllib.request.Request(url, data=data, method=method)
-        request.add_header("User-Agent", "forge-bridge/2.0")
-        for key, value in headers.items():
-            request.add_header(key, value)
-        with urllib.request.urlopen(request, timeout=28) as response:
-            raw = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(raw) > MAX_RESPONSE_BYTES:
-                raise ValueError("Local daemon response exceeded 2 MB")
-            response_headers = dict(response.headers.items())
-            try:
-                response_body = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                response_body = base64.b64encode(raw).decode("ascii")
-                response_headers["X-Forge-Binary"] = "1"
-            return {
-                "type": "result",
-                "id": job_id,
-                "responseStatus": response.status,
-                "responseHeaders": response_headers,
-                "responseBody": response_body,
-            }
+        response = urllib.request.urlopen(request, timeout=STREAM_IDLE_SECONDS)
     except urllib.error.HTTPError as error:
-        raw = error.read(MAX_RESPONSE_BYTES)
-        return {
-            "type": "result",
-            "id": job_id,
-            "responseStatus": error.code,
-            "responseHeaders": dict(error.headers.items()) if error.headers else {},
-            "responseBody": raw.decode("utf-8", errors="replace"),
-        }
+        response = error
     except Exception as error:
         return {"type": "result", "id": job_id, "error": str(error), "responseStatus": 502}
+
+    with response:
+        response_headers = dict(response.headers.items())
+        content_type = str(response.headers.get("content-type") or "").lower()
+        should_stream = emit is not None and (
+            "text/event-stream" in content_type or
+            str(response.headers.get("transfer-encoding") or "").lower() == "chunked")
+        if should_stream:
+            emit({"type": "stream_start", "id": job_id,
+                  "responseStatus": response.status,
+                  "responseHeaders": response_headers})
+            started = time.monotonic()
+            reader = getattr(response, "read1", response.read)
+            while True:
+                if time.monotonic() - started > STREAM_MAX_SECONDS:
+                    raise RuntimeError("Local daemon stream exceeded one hour")
+                chunk = reader(STREAM_CHUNK_BYTES)
+                if not chunk:
+                    break
+                emit({"type": "stream_chunk", "id": job_id,
+                      "encoding": "base64",
+                      "data": base64.b64encode(chunk).decode("ascii")})
+            emit({"type": "stream_end", "id": job_id})
+            return None
+
+        raw = response.read(MAX_RESPONSE_BYTES + 1)
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise ValueError("Local daemon response exceeded 2 MB")
+        try:
+            response_body = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            response_body = base64.b64encode(raw).decode("ascii")
+            response_headers["X-Forge-Binary"] = "1"
+        return {"type": "result", "id": job_id,
+                "responseStatus": response.status,
+                "responseHeaders": response_headers,
+                "responseBody": response_body}
 
 
 def websocket_url(config):
@@ -205,7 +222,24 @@ class Bridge:
 
     def execute_job(self, job):
         token = daemon_token(self.config)
-        self.send(run_job(job, self.config, token))
+        started_stream = [False]
+
+        def emit(payload):
+            if payload.get("type") == "stream_start":
+                started_stream[0] = True
+            self.send(payload)
+
+        try:
+            result = run_job(job, self.config, token, emit=emit)
+            if result is not None:
+                self.send(result)
+        except Exception as error:
+            self.send({
+                "type": "stream_error" if started_stream[0] else "result",
+                "id": str(job.get("id") or ""),
+                "error": str(error),
+                "responseStatus": 502,
+            })
 
     def heartbeat_loop(self):
         while not self.stop_event.wait(10):

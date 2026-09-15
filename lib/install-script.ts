@@ -62,10 +62,34 @@ if command -v git >/dev/null 2>&1; then
     echo "→ installing the loopback-only agent daemon"
     git clone --depth 1 https://github.com/jxw1102/agent-remote.git "\$FORGE_HOME/agent-remote"
   fi
-  mkdir -p "\$HOME/.agentremoted"
-  if [[ ! -f "\$HOME/.agentremoted/config.json" ]]; then
-    printf '%s\n' '{"bind":"127.0.0.1","port":8473,"providers":["claude","codex"]}' > "\$HOME/.agentremoted/config.json"
+  DAEMON_DIR="\$FORGE_HOME/agent-remote/daemon/agentremoted"
+  PROVIDER_DIR="\$DAEMON_DIR/providers"
+  curl -fsSL "\$ORIGIN/api/agent-remote/config.py" -o "\$DAEMON_DIR/config.py"
+  curl -fsSL "\$ORIGIN/api/agent-remote/__init__.py" -o "\$PROVIDER_DIR/__init__.py"
+  curl -fsSL "\$ORIGIN/api/agent-remote/cursor.py" -o "\$PROVIDER_DIR/cursor.py"
+  curl -fsSL "\$ORIGIN/api/agent-remote/antigravity.py" -o "\$PROVIDER_DIR/antigravity.py"
+  curl -fsSL "\$ORIGIN/api/agent-remote/antigravity_interactive.py" -o "\$PROVIDER_DIR/antigravity_interactive.py"
+
+  if ! command -v claude >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 || echo "Warning: Claude Code was not installed." >&2; fi
+  if ! command -v codex >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then npm install -g @openai/codex >/dev/null 2>&1 || echo "Warning: Codex was not installed." >&2; fi
+  if ! command -v cursor-agent >/dev/null 2>&1; then curl -fsSL https://cursor.com/install | bash >/dev/null 2>&1 || echo "Warning: install Cursor Agent later from cursor.com." >&2; fi
+  if ! command -v agy >/dev/null 2>&1; then
+    if command -v gcloud >/dev/null 2>&1; then gcloud components install antigravity --quiet >/dev/null 2>&1 || echo "Warning: install the Antigravity agy CLI later." >&2
+    else echo "Warning: Antigravity requires the agy CLI and Google Cloud SDK." >&2; fi
   fi
+
+  mkdir -p "\$HOME/.agentremoted"
+  python3 - "\$HOME/.agentremoted/config.json" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+try: data = json.loads(path.read_text()) if path.exists() else {}
+except (OSError, ValueError): data = {}
+data.update({"bind": "127.0.0.1", "port": 8473,
+             "providers": ["claude", "codex", "cursor", "antigravity"]})
+for key in ("claude", "codex", "cursor", "antigravity"):
+    data.setdefault(key + "_default_cwd", str(pathlib.Path.home()))
+path.write_text(json.dumps(data, indent=2) + "\\n")
+PY
 else
   echo "git is not installed; install it later to add the local agent daemon."
 fi
@@ -163,10 +187,24 @@ Invoke-WebRequest -UseBasicParsing "$Origin/bridge.py" -OutFile (Join-Path $Forg
 if (Get-Command git -ErrorAction SilentlyContinue) {
   $AgentHome = Join-Path $ForgeHome 'agent-remote'
   if (-not (Test-Path (Join-Path $AgentHome 'daemon'))) { git clone --depth 1 https://github.com/jxw1102/agent-remote.git $AgentHome }
+  $DaemonPackage = Join-Path $AgentHome 'daemon\agentremoted'
+  $ProviderHome = Join-Path $DaemonPackage 'providers'
+  Invoke-WebRequest -UseBasicParsing "$Origin/api/agent-remote/config.py" -OutFile (Join-Path $DaemonPackage 'config.py')
+  Invoke-WebRequest -UseBasicParsing "$Origin/api/agent-remote/__init__.py" -OutFile (Join-Path $ProviderHome '__init__.py')
+  Invoke-WebRequest -UseBasicParsing "$Origin/api/agent-remote/cursor.py" -OutFile (Join-Path $ProviderHome 'cursor.py')
+  Invoke-WebRequest -UseBasicParsing "$Origin/api/agent-remote/antigravity.py" -OutFile (Join-Path $ProviderHome 'antigravity.py')
+  Invoke-WebRequest -UseBasicParsing "$Origin/api/agent-remote/antigravity_interactive.py" -OutFile (Join-Path $ProviderHome 'antigravity_interactive.py')
+  if (-not (Get-Command claude -ErrorAction SilentlyContinue) -and (Get-Command npm -ErrorAction SilentlyContinue)) { npm install -g @anthropic-ai/claude-code }
+  if (-not (Get-Command codex -ErrorAction SilentlyContinue) -and (Get-Command npm -ErrorAction SilentlyContinue)) { npm install -g @openai/codex }
+
   $DaemonHome = Join-Path $HOME '.agentremoted'
   New-Item -ItemType Directory -Force -Path $DaemonHome | Out-Null
   $DaemonConfig = Join-Path $DaemonHome 'config.json'
-  if (-not (Test-Path $DaemonConfig)) { '{"bind":"127.0.0.1","port":8473,"providers":["claude","codex"]}' | Set-Content -Encoding UTF8 $DaemonConfig }
+  $DaemonSettings = if (Test-Path $DaemonConfig) { Get-Content -Raw $DaemonConfig | ConvertFrom-Json } else { [PSCustomObject]@{} }
+  $DaemonSettings | Add-Member -Force NoteProperty bind '127.0.0.1'
+  $DaemonSettings | Add-Member -Force NoteProperty port 8473
+  $DaemonSettings | Add-Member -Force NoteProperty providers @('claude','codex','cursor','antigravity')
+  $DaemonSettings | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $DaemonConfig
   $TokenPath = Join-Path $DaemonHome 'token'
   if (Test-Path $TokenPath) {
     $Config.daemonToken = (Get-Content -Raw $TokenPath).Trim()

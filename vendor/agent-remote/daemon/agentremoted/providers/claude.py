@@ -2478,6 +2478,11 @@ class ClaudeRunner:
         return summarize_title(self.config, text)
 
     def prepare(self, job, mode):
+        if not job.cwd:
+            job.cwd = os.path.expanduser(
+                str(getattr(self.config, "claude_default_cwd", "") or "~"))
+        if not os.path.isdir(job.cwd):
+            raise providers.RunnerError("cwd does not exist: %s" % job.cwd)
         cmd = [
             self.config.claude_bin,
             "-p", job.prompt,

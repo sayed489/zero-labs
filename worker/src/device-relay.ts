@@ -1,25 +1,64 @@
 import type { Env } from './types'
-import { json, randomId } from './util'
+import { json } from './util'
 
-type PendingRequest = {
+type Pending = {
   resolve: (response: Response) => void
   timer: ReturnType<typeof setTimeout>
 }
 
-type RelayStatus = {
-  daemonOk: boolean
-  status: unknown
-  lastSeenAt: number | null
+type ActiveStream = {
+  controller: ReadableStreamDefaultController<Uint8Array>
+  idleTimer: ReturnType<typeof setTimeout>
+  lifetimeTimer: ReturnType<typeof setTimeout>
 }
 
-const EMPTY_STATUS: RelayStatus = { daemonOk: false, status: { active: [] }, lastSeenAt: null }
-const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade'])
+type RpcPayload = {
+  id: string
+  method: string
+  path: string
+  query?: string
+  headers?: Record<string, string>
+  body?: string | null
+}
+
+type SocketMessage = {
+  type?: string
+  id?: string
+  responseStatus?: number
+  responseHeaders?: Record<string, string>
+  responseBody?: string
+  error?: string
+  encoding?: string
+  data?: string
+  daemonOk?: boolean
+  status?: unknown
+}
+
+const FIRST_BYTE_TIMEOUT_MS = 45_000
+const STREAM_IDLE_TIMEOUT_MS = 60_000
+const STREAM_MAX_LIFETIME_MS = 60 * 60_000
+const HEARTBEAT_TIMEOUT_MS = 35_000
+const ALLOWED_RESPONSE_HEADERS = new Set([
+  'cache-control',
+  'content-disposition',
+  'content-range',
+  'content-type',
+  'etag',
+  'last-modified',
+  'x-forge-binary',
+])
 
 export class DeviceRelay implements DurableObject {
-  private readonly state: DurableObjectState
-  private readonly env: Env
-  private readonly pending = new Map<string, PendingRequest>()
-  private deviceId = ''
+  private state: DurableObjectState
+  private env: Env
+  private socket: WebSocket | null = null
+  private pending = new Map<string, Pending>()
+  private streams = new Map<string, ActiveStream>()
+  private online = false
+  private daemonOk = false
+  private lastSeenAt: number | null = null
+  private latestStatus: unknown = null
+  private statusSubscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state
@@ -28,152 +67,244 @@ export class DeviceRelay implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
-    if (url.pathname === '/connect') return this.connectSocket(request)
+    if (url.pathname === '/connect') return this.connectDevice(request)
     if (url.pathname === '/rpc' && request.method === 'POST') return this.rpc(request)
-    if (url.pathname === '/status') return json(await this.getStatus())
-    if (url.pathname === '/events') return this.events(request.signal)
+    if (url.pathname === '/status') return json(this.status())
+    if (url.pathname === '/events') return this.events(request)
     return json({ error: 'Not found' }, 404)
   }
 
-  async webSocketMessage(_socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    let payload: Record<string, unknown>
-    try {
-      const raw = typeof message === 'string' ? message : new TextDecoder().decode(message)
-      payload = JSON.parse(raw) as Record<string, unknown>
-    } catch {
-      return
-    }
-
-    const now = Date.now()
-    if (payload.type === 'hello' || payload.type === 'heartbeat') {
-      const status: RelayStatus = {
-        daemonOk: Boolean(payload.daemonOk),
-        status: payload.status ?? { active: [] },
-        lastSeenAt: now,
-      }
-      await this.state.storage.put('status', status)
-      if (this.deviceId) {
-        await this.env.DB.prepare('UPDATE devices SET daemon_ok = ?, last_seen_at = ? WHERE id = ?')
-          .bind(status.daemonOk ? 1 : 0, now, this.deviceId)
-          .run()
-      }
-      return
-    }
-
-    if (payload.type !== 'result' || typeof payload.id !== 'string') return
-    const pending = this.pending.get(payload.id)
-    if (!pending) return
-    this.pending.delete(payload.id)
-    clearTimeout(pending.timer)
-
-    if (payload.error) {
-      pending.resolve(json({ error: String(payload.error) }, 502))
-      return
-    }
-
-    const headers = new Headers()
-    const sourceHeaders = payload.responseHeaders
-    if (sourceHeaders && typeof sourceHeaders === 'object') {
-      for (const [key, value] of Object.entries(sourceHeaders as Record<string, unknown>)) {
-        if (!HOP_BY_HOP.has(key.toLowerCase()) && typeof value === 'string') headers.set(key, value)
-      }
-    }
-    if (!headers.has('content-type')) headers.set('content-type', 'application/json; charset=utf-8')
-    pending.resolve(new Response(typeof payload.responseBody === 'string' ? payload.responseBody : '', {
-      status: typeof payload.responseStatus === 'number' ? payload.responseStatus : 200,
-      headers,
-    }))
-  }
-
-  async webSocketClose(): Promise<void> {
-    await this.markOffline()
-  }
-
-  async webSocketError(): Promise<void> {
-    await this.markOffline()
-  }
-
-  private async connectSocket(request: Request): Promise<Response> {
+  private async connectDevice(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-      return json({ error: 'WebSocket upgrade required' }, 426)
+      return json({ error: 'WebSocket required' }, 426)
     }
-    this.deviceId = request.headers.get('X-Forge-Device-Id') || this.deviceId
-    for (const existing of this.state.getWebSockets('laptop')) existing.close(4001, 'Replaced by a newer connection')
-
     const pair = new WebSocketPair()
     const client = pair[0]
     const server = pair[1]
-    this.state.acceptWebSocket(server, ['laptop'])
-    await this.state.storage.put('status', { ...EMPTY_STATUS, lastSeenAt: Date.now() })
+    server.accept()
+    this.closeSocket('Replaced by a new connection')
+    this.socket = server
+    this.online = true
+    this.lastSeenAt = Date.now()
+    server.addEventListener('message', (event) => this.onMessage(event))
+    server.addEventListener('close', () => this.onDisconnect(server))
+    server.addEventListener('error', () => this.onDisconnect(server))
+    this.scheduleHeartbeatCheck(server)
+    this.broadcastStatus()
     return new Response(null, { status: 101, webSocket: client })
   }
 
   private async rpc(request: Request): Promise<Response> {
-    const sockets = this.state.getWebSockets('laptop')
-    const socket = sockets.at(0)
-    if (!socket) return json({ error: 'Laptop is offline' }, 503)
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.online) {
+      return json({ error: 'Device is offline' }, 503)
+    }
+    const payload = await request.json<RpcPayload>()
+    if (!payload.id || !payload.path || !payload.method) return json({ error: 'Invalid RPC request' }, 400)
 
-    const job = await request.json<Record<string, unknown>>()
-    const id = typeof job.id === 'string' ? job.id : randomId('rpc_')
     const response = new Promise<Response>((resolve) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id)
-        resolve(json({ error: 'Laptop did not answer in time' }, 504))
-      }, 28_000)
-      this.pending.set(id, { resolve, timer })
+        this.pending.delete(payload.id)
+        resolve(json({ error: 'Device did not begin responding in time' }, 504))
+      }, FIRST_BYTE_TIMEOUT_MS)
+      this.pending.set(payload.id, { resolve, timer })
     })
-
     try {
-      socket.send(JSON.stringify({ ...job, id, type: 'rpc' }))
+      this.socket.send(JSON.stringify({ type: 'rpc', ...payload }))
     } catch {
-      const pending = this.pending.get(id)
-      if (pending) clearTimeout(pending.timer)
-      this.pending.delete(id)
-      return json({ error: 'Laptop connection was lost' }, 503)
+      const pending = this.pending.get(payload.id)
+      if (pending) {
+        clearTimeout(pending.timer)
+        this.pending.delete(payload.id)
+        pending.resolve(json({ error: 'Device disconnected' }, 503))
+      }
     }
     return response
   }
 
-  private async getStatus(): Promise<RelayStatus & { online: boolean }> {
-    const saved = (await this.state.storage.get<RelayStatus>('status')) || EMPTY_STATUS
-    const online = this.state.getWebSockets('laptop').length > 0
-    return { ...saved, online }
+  private onMessage(event: MessageEvent) {
+    if (typeof event.data !== 'string') return
+    let message: SocketMessage
+    try {
+      message = JSON.parse(event.data) as SocketMessage
+    } catch {
+      return
+    }
+    this.lastSeenAt = Date.now()
+    if (message.type === 'hello' || message.type === 'heartbeat') {
+      this.daemonOk = Boolean(message.daemonOk)
+      this.latestStatus = message.status ?? this.latestStatus
+      this.online = true
+      this.broadcastStatus()
+      return
+    }
+    if (!message.id) return
+    if (message.type === 'result') this.finishBuffered(message)
+    else if (message.type === 'stream_start') this.startStream(message)
+    else if (message.type === 'stream_chunk') this.pushStream(message)
+    else if (message.type === 'stream_end') this.closeStream(message.id)
+    else if (message.type === 'stream_error') this.errorStream(message.id, message.error || 'Device stream failed')
   }
 
-  private events(signal: AbortSignal): Response {
+  private finishBuffered(message: SocketMessage) {
+    const pending = this.pending.get(message.id || '')
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pending.delete(message.id || '')
+    const headers = this.safeHeaders(message.responseHeaders)
+    pending.resolve(new Response(message.responseBody || '', {
+      status: message.responseStatus || (message.error ? 502 : 200),
+      headers,
+    }))
+  }
+
+  private startStream(message: SocketMessage) {
+    const id = message.id || ''
+    const pending = this.pending.get(id)
+    if (!pending || this.streams.has(id)) return
+    clearTimeout(pending.timer)
+    this.pending.delete(id)
+
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const body = new ReadableStream<Uint8Array>({
+      start(value) { controller = value },
+      cancel: () => this.dropStream(id),
+    })
+    const stream: ActiveStream = {
+      controller,
+      idleTimer: setTimeout(() => this.errorStream(id, 'Device stream became idle'), STREAM_IDLE_TIMEOUT_MS),
+      lifetimeTimer: setTimeout(() => this.errorStream(id, 'Device stream exceeded one hour'), STREAM_MAX_LIFETIME_MS),
+    }
+    this.streams.set(id, stream)
+    pending.resolve(new Response(body, {
+      status: message.responseStatus || 200,
+      headers: this.safeHeaders(message.responseHeaders),
+    }))
+  }
+
+  private pushStream(message: SocketMessage) {
+    const id = message.id || ''
+    const stream = this.streams.get(id)
+    if (!stream || typeof message.data !== 'string') return
+    clearTimeout(stream.idleTimer)
+    stream.idleTimer = setTimeout(() => this.errorStream(id, 'Device stream became idle'), STREAM_IDLE_TIMEOUT_MS)
+    try {
+      stream.controller.enqueue(message.encoding === 'base64'
+        ? decodeBase64(message.data)
+        : new TextEncoder().encode(message.data))
+    } catch {
+      this.dropStream(id)
+    }
+  }
+
+  private closeStream(id: string) {
+    const stream = this.streams.get(id)
+    if (!stream) return
+    this.clearStreamTimers(stream)
+    this.streams.delete(id)
+    try { stream.controller.close() } catch { /* client already disconnected */ }
+  }
+
+  private errorStream(id: string, message: string) {
+    const stream = this.streams.get(id)
+    if (!stream) return
+    this.clearStreamTimers(stream)
+    this.streams.delete(id)
+    try { stream.controller.error(new Error(message)) } catch { /* client already disconnected */ }
+  }
+
+  private dropStream(id: string) {
+    const stream = this.streams.get(id)
+    if (!stream) return
+    this.clearStreamTimers(stream)
+    this.streams.delete(id)
+  }
+
+  private clearStreamTimers(stream: ActiveStream) {
+    clearTimeout(stream.idleTimer)
+    clearTimeout(stream.lifetimeTimer)
+  }
+
+  private safeHeaders(source?: Record<string, string>) {
+    const headers = new Headers()
+    for (const [key, value] of Object.entries(source || {})) {
+      if (ALLOWED_RESPONSE_HEADERS.has(key.toLowerCase())) headers.set(key, value)
+    }
+    headers.set('cache-control', 'no-store')
+    return headers
+  }
+
+  private events(request: Request): Response {
     const encoder = new TextEncoder()
-    let timer: ReturnType<typeof setInterval> | undefined
+    let controllerRef: ReadableStreamDefaultController<Uint8Array>
     const stream = new ReadableStream<Uint8Array>({
-      start: async (controller) => {
-        const push = async () => {
-          const status = await this.getStatus()
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(status.status)}\n\n`))
-        }
-        await push()
-        timer = setInterval(() => void push().catch(() => {}), 2_500)
-        setTimeout(() => {
-          if (timer) clearInterval(timer)
-          try { controller.close() } catch { /* already closed */ }
-        }, 22_000)
-        signal.addEventListener('abort', () => {
-          if (timer) clearInterval(timer)
-          try { controller.close() } catch { /* already closed */ }
-        }, { once: true })
+      start: (controller) => {
+        controllerRef = controller
+        this.statusSubscribers.add(controller)
+        controller.enqueue(encoder.encode(`event: status\ndata: ${JSON.stringify(this.status())}\n\n`))
       },
-      cancel: () => {
-        if (timer) clearInterval(timer)
-      },
+      cancel: () => { this.statusSubscribers.delete(controllerRef) },
     })
-    return new Response(stream, {
-      headers: {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache, no-transform',
-      },
+    const headers = new Headers({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
     })
+    const lastEventId = request.headers.get('Last-Event-ID')
+    if (lastEventId) headers.set('X-Forge-Resume', lastEventId)
+    return new Response(stream, { headers })
   }
 
-  private async markOffline(): Promise<void> {
-    const saved = (await this.state.storage.get<RelayStatus>('status')) || EMPTY_STATUS
-    await this.state.storage.put('status', { ...saved, lastSeenAt: Date.now() })
+  private broadcastStatus() {
+    const bytes = new TextEncoder().encode(`event: status\ndata: ${JSON.stringify(this.status())}\n\n`)
+    for (const controller of [...this.statusSubscribers]) {
+      try { controller.enqueue(bytes) } catch { this.statusSubscribers.delete(controller) }
+    }
   }
+
+  private status() {
+    return {
+      online: this.online,
+      daemonOk: this.daemonOk,
+      lastSeenAt: this.lastSeenAt,
+      status: this.latestStatus,
+    }
+  }
+
+  private scheduleHeartbeatCheck(socket: WebSocket) {
+    setTimeout(() => {
+      if (this.socket !== socket) return
+      if (!this.lastSeenAt || Date.now() - this.lastSeenAt > HEARTBEAT_TIMEOUT_MS) {
+        this.closeSocket('Heartbeat timeout')
+        return
+      }
+      this.scheduleHeartbeatCheck(socket)
+    }, HEARTBEAT_TIMEOUT_MS)
+  }
+
+  private onDisconnect(socket: WebSocket) {
+    if (this.socket !== socket) return
+    this.closeSocket('Device disconnected')
+  }
+
+  private closeSocket(reason: string) {
+    if (this.socket) {
+      try { this.socket.close(1000, reason.slice(0, 120)) } catch { /* already closed */ }
+    }
+    this.socket = null
+    this.online = false
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timer)
+      pending.resolve(json({ error: reason }, 503))
+      this.pending.delete(id)
+    }
+    for (const id of [...this.streams.keys()]) this.errorStream(id, reason)
+    this.broadcastStatus()
+  }
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
 }
