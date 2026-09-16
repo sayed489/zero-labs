@@ -57,6 +57,11 @@ export async function proxyRelayRequest(request: Request, pathname: string): Pro
     responseHeaders.set('Cache-Control', 'no-store')
     responseHeaders.delete('access-control-allow-origin')
     responseHeaders.delete('access-control-allow-credentials')
+    // fetch() already decompressed the body, so the original encoding and
+    // length headers no longer describe it. Forwarding them makes the browser
+    // try to decode plain JSON and fail the request.
+    responseHeaders.delete('content-encoding')
+    responseHeaders.delete('content-length')
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
