@@ -28,7 +28,7 @@ The primary automation is [`worker/deploy.sh`](./deploy.sh). Prefer running it i
    - Workers Scripts: Edit
    - D1: Edit
    - Account Settings: Read
-3. Node.js, pnpm, Python 3, curl, and OpenSSL.
+3. Node.js, pnpm, Python 3, and curl. OpenSSL is not required; the script generates secrets with Python.
 4. A Vercel account with access to project `zero-labs-nine` in scope `ramulp12h-8763s-projects`.
 5. The production web URL: `https://zero-labs-nine.vercel.app`.
 
@@ -48,7 +48,7 @@ Do not wrap values in angle brackets. Do not commit this file.
 
 ## Complete automated deployment
 
-From the repository root on macOS, Linux, or WSL:
+From the repository root on macOS, Linux, Git Bash, or WSL:
 
 ```bash
 bash worker/deploy.sh
@@ -113,6 +113,10 @@ D1:     forge (<database UUID>)
 9. Submit a longer prompt and verify text appears incrementally; this validates SSE through the Worker and bridge.
 
 ## Troubleshooting
+
+### Missing command: openssl
+
+This is already handled. The current `worker/deploy.sh` generates secrets with Python and does not require OpenSSL. Pull or save the latest script, then rerun `bash worker/deploy.sh`.
 
 ### Token rejected
 

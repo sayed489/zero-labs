@@ -45,7 +45,15 @@ set_vercel_env() {
 require python3
 require curl
 require pnpm
-require openssl
+
+random_secret() {
+  local bytes="${1:-32}" encoding="${2:-hex}"
+  python3 - "$bytes" "$encoding" <<'PY'
+import secrets, sys
+nbytes, encoding = int(sys.argv[1]), sys.argv[2]
+print(secrets.token_hex(nbytes) if encoding == "hex" else secrets.token_urlsafe(nbytes), end="")
+PY
+}
 
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
   CLOUDFLARE_API_TOKEN="$(load_env_value CLOUDFLARE_API_TOKEN)"
@@ -98,8 +106,8 @@ if [[ -f "$SECRETS_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$SECRETS_FILE"
 fi
-WORKER_PROXY_SECRET="${WORKER_PROXY_SECRET:-$(openssl rand -hex 32)}"
-BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(openssl rand -base64 48 | tr -d '\n')}"
+WORKER_PROXY_SECRET="${WORKER_PROXY_SECRET:-$(random_secret 32 hex)}"
+BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(random_secret 48 urlsafe)}"
 umask 077
 printf 'WORKER_PROXY_SECRET=%q\nBETTER_AUTH_SECRET=%q\n' "$WORKER_PROXY_SECRET" "$BETTER_AUTH_SECRET" > "$SECRETS_FILE"
 
