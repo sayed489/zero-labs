@@ -18,7 +18,7 @@ The primary automation is [`worker/deploy.sh`](./deploy.sh). Prefer running it i
 - Never commit or print `CLOUDFLARE_API_TOKEN`, `WORKER_PROXY_SECRET`, or `BETTER_AUTH_SECRET`.
 - Never run the laptop installer with `sudo`. Full-control agents inherit the permissions of the signed-in laptop user.
 - Keep `agentremoted` bound to `127.0.0.1`. The bridge must be the only outbound connection to the public relay.
-- `.env.development.local` and `.forge-deploy.env` are gitignored.
+- `.env.local`, `.env.development.local`, and `.forge-deploy.env` are gitignored. v0 overwrites `.env.development.local`, so Cloudflare secrets belong in `.env.local`.
 - Rotating `WORKER_PROXY_SECRET` requires updating both Cloudflare and Vercel before clients can reconnect.
 
 ## One-time prerequisites
@@ -32,7 +32,7 @@ The primary automation is [`worker/deploy.sh`](./deploy.sh). Prefer running it i
 4. A Vercel account with access to project `zero-labs-nine` in scope `ramulp12h-8763s-projects`.
 5. The production web URL: `https://zero-labs-nine.vercel.app`.
 
-Put the Cloudflare token in the repository-root `.env.development.local`:
+Do **not** put the token in `.env.development.local`. v0 regenerates that file, so `bash worker/deploy.sh` will not see the key. Create `.env.local` in the repo root instead:
 
 ```dotenv
 CLOUDFLARE_API_TOKEN=replace_with_real_token
@@ -44,7 +44,12 @@ If the token can access multiple Cloudflare accounts, also add the account ID sh
 CLOUDFLARE_ACCOUNT_ID=replace_with_32_character_account_id
 ```
 
-Do not wrap values in angle brackets. Do not commit this file.
+Do not wrap values in angle brackets. Do not commit this file. Quotes are optional. You can also export the token for one run:
+
+```bash
+export CLOUDFLARE_API_TOKEN='replace_with_real_token'
+bash worker/deploy.sh
+```
 
 ## Complete automated deployment
 
@@ -72,7 +77,7 @@ bash worker/deploy.sh
 
 The script is idempotent and performs these operations:
 
-1. Reads only the required Cloudflare values from `.env.development.local`.
+1. Reads Cloudflare values from `.env.local`, `.env`, `worker/.dev.vars`, then `.env.development.local`.
 2. Discovers the Cloudflare account when the token has exactly one account.
 3. Installs dependencies and runs Worker type-check plus the Next.js build.
 4. Reuses the `forge` D1 database or creates it when absent.
@@ -118,13 +123,17 @@ D1:     forge (<database UUID>)
 
 This is already handled. The current `worker/deploy.sh` generates secrets with Python and does not require OpenSSL. Pull or save the latest script, then rerun `bash worker/deploy.sh`.
 
+### CLOUDFLARE_API_TOKEN was not found
+
+The editor can show a key in `.env.development.local` while the deploy script still misses it, because v0 regenerates that file. Move the token to `.env.local` or export it, then rerun `bash worker/deploy.sh`. The script prints every file it checked.
+
 ### Token rejected
 
 Verify the token is active and has Workers Scripts Edit, D1 Edit, and Account Settings Read. Do not use a Global API Key.
 
 ### More than one Cloudflare account
 
-Set `CLOUDFLARE_ACCOUNT_ID` in `.env.development.local` and rerun.
+Set `CLOUDFLARE_ACCOUNT_ID` in `.env.local` and rerun.
 
 ### Worker URL was not detected
 

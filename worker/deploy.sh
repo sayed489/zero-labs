@@ -3,12 +3,24 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKER_DIR="$ROOT_DIR/worker"
-ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env.development.local}"
 APP_URL="${APP_URL:-https://zero-labs-nine.vercel.app}"
 VERCEL_PROJECT="${VERCEL_PROJECT:-zero-labs-nine}"
 VERCEL_SCOPE="${VERCEL_SCOPE:-ramulp12h-8763s-projects}"
 DATABASE_NAME="${DATABASE_NAME:-forge}"
 SECRETS_FILE="$ROOT_DIR/.forge-deploy.env"
+# v0 regenerates .env.development.local. Keep Cloudflare secrets in .env.local
+# or worker/.dev.vars so they survive. ENV_FILE still overrides the search list.
+ENV_FILES=()
+if [[ -n "${ENV_FILE:-}" ]]; then
+  ENV_FILES+=("$ENV_FILE")
+fi
+ENV_FILES+=(
+  "$ROOT_DIR/.env.local"
+  "$ROOT_DIR/.env"
+  "$WORKER_DIR/.dev.vars"
+  "$ROOT_DIR/.forge-deploy.env"
+  "$ROOT_DIR/.env.development.local"
+)
 
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -16,22 +28,46 @@ require() { command -v "$1" >/dev/null 2>&1 || fail "Missing command: $1"; }
 
 load_env_value() {
   local key="$1"
-  [[ -f "$ENV_FILE" ]] || return 0
-  python3 - "$ENV_FILE" "$key" <<'PY'
+  python3 - "$key" "${ENV_FILES[@]}" <<'PY'
 import pathlib, sys
-path, wanted = pathlib.Path(sys.argv[1]), sys.argv[2]
-for raw in path.read_text().splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#") or "=" not in line:
+wanted = sys.argv[1]
+for raw_path in sys.argv[2:]:
+    path = pathlib.Path(raw_path)
+    if not path.is_file():
         continue
-    key, value = line.split("=", 1)
-    if key.strip() == wanted:
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("\ufeff")
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        key, value = line.split("=", 1)
+        if key.strip() != wanted:
+            continue
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
         print(value, end="")
-        break
+        raise SystemExit(0)
+raise SystemExit(0)
 PY
+}
+
+describe_env_search() {
+  local key="$1" path
+  printf 'Looked for %s in:\n' "$key" >&2
+  for path in "${ENV_FILES[@]}"; do
+    if [[ -f "$path" ]]; then
+      if grep -E -q "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$path" 2>/dev/null; then
+        printf '  %s (found key)\n' "$path" >&2
+      else
+        printf '  %s (file exists, key missing)\n' "$path" >&2
+      fi
+    else
+      printf '  %s (file missing)\n' "$path" >&2
+    fi
+  done
 }
 
 set_vercel_env() {
@@ -58,7 +94,20 @@ PY
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
   CLOUDFLARE_API_TOKEN="$(load_env_value CLOUDFLARE_API_TOKEN)"
 fi
-[[ -n "$CLOUDFLARE_API_TOKEN" ]] || fail "Set CLOUDFLARE_API_TOKEN in $ENV_FILE or export it in the shell."
+if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+  describe_env_search CLOUDFLARE_API_TOKEN
+  fail "CLOUDFLARE_API_TOKEN was not found.
+
+v0 overwrites .env.development.local, so do not put the token there.
+Create .env.local in the repo root (gitignored) with:
+
+  CLOUDFLARE_API_TOKEN=your_token_here
+
+Or export it for this shell:
+
+  export CLOUDFLARE_API_TOKEN='your_token_here'
+  bash worker/deploy.sh"
+fi
 export CLOUDFLARE_API_TOKEN
 
 if [[ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
@@ -70,7 +119,7 @@ if [[ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
     'https://api.cloudflare.com/client/v4/accounts?per_page=50')"
   CLOUDFLARE_ACCOUNT_ID="$(python3 -c 'import json,sys; d=json.load(sys.stdin); r=d.get("result",[]); print(r[0]["id"] if len(r)==1 else "")' <<<"$accounts_json")"
 fi
-[[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]] || fail "Could not choose one Cloudflare account. Add CLOUDFLARE_ACCOUNT_ID to $ENV_FILE."
+[[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]] || fail "Could not choose one Cloudflare account. Add CLOUDFLARE_ACCOUNT_ID to .env.local."
 export CLOUDFLARE_ACCOUNT_ID
 
 log "Installing dependencies and running checks"
