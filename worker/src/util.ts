@@ -87,7 +87,11 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
-const PBKDF2_ITERATIONS = 310_000
+// Cloudflare Workers rejects PBKDF2 above 100,000 iterations with a
+// NotSupportedError, so this is the strongest value the runtime allows.
+// The count is stored in each hash, so verifyPassword still accepts hashes
+// written with a different iteration count.
+const PBKDF2_ITERATIONS = 100_000
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16))
