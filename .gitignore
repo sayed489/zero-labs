@@ -14,3 +14,13 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Wrangler local dev state (D1, Durable Objects, cache)
+.wrangler/
+worker/.wrangler/
