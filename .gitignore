@@ -6,8 +6,9 @@ __v0_jsx-dev-runtime.ts
 .v0-trash/
 .vercel/
 
-# Environment variables
+# Environment variables and generated deployment secrets
 .env*.local
+.forge-deploy.env
 
 # Common ignores
 node_modules

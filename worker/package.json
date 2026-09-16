@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:full": "bash ./deploy.sh",
     "db:init": "wrangler d1 execute forge --remote --file=schema.sql",
     "typecheck": "tsc --noEmit"
   },
