@@ -1,7 +1,7 @@
 import { proxyRelayRequest } from '@/lib/relay'
 
 export const runtime = 'nodejs'
-export const maxDuration = 30
+export const maxDuration = 300
 
 async function handler(
   request: Request,

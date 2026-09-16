@@ -26,6 +26,7 @@ DEFAULT_DAEMON_URL = "http://127.0.0.1:8473"
 MAX_RESPONSE_BYTES = 2_000_000
 STREAM_IDLE_SECONDS = 60
 STREAM_MAX_SECONDS = 60 * 60
+STREAM_MAX_BYTES = 64 * 1024 * 1024
 STREAM_CHUNK_BYTES = 16 * 1024
 
 
@@ -145,6 +146,7 @@ def run_job(job, config, token, emit=None):
                   "responseStatus": response.status,
                   "responseHeaders": response_headers})
             started = time.monotonic()
+            streamed_bytes = 0
             reader = getattr(response, "read1", response.read)
             while True:
                 if time.monotonic() - started > STREAM_MAX_SECONDS:
@@ -152,6 +154,9 @@ def run_job(job, config, token, emit=None):
                 chunk = reader(STREAM_CHUNK_BYTES)
                 if not chunk:
                     break
+                streamed_bytes += len(chunk)
+                if streamed_bytes > STREAM_MAX_BYTES:
+                    raise RuntimeError("Local daemon stream exceeded 64 MB")
                 emit({"type": "stream_chunk", "id": job_id,
                       "encoding": "base64",
                       "data": base64.b64encode(chunk).decode("ascii")})
