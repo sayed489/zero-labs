@@ -14,6 +14,8 @@ const PROVIDERS = {
   claude: { label: "Claude", accent: "#d97757", heading: "#e08a5c", inline: "#e0a183" },
   grok: { label: "Grok", accent: "#00d4ff", heading: "#b9a2f0", inline: "#67e8f9" },
   codex: { label: "Codex", accent: "#10a37f", heading: "#3dd68c", inline: "#6ee7b7" },
+  cursor: { label: "Cursor", accent: "#8b5cf6", heading: "#a78bfa", inline: "#c4b5fd" },
+  antigravity: { label: "Antigravity", accent: "#4285f4", heading: "#60a5fa", inline: "#93c5fd" },
   deepseek: { label: "DeepSeek", accent: "#4d6bfe", heading: "#7b93ff", inline: "#93a8ff" },
   dsh: { label: "DeepSeek", accent: "#4d6bfe", heading: "#7b93ff", inline: "#93a8ff" },
 };

@@ -94,7 +94,7 @@ function AuthScreen({ initialCode }: { initialCode: string }) {
     <main className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center gap-8 px-5 py-10">
       <BrandHeader
         title={initialCode ? 'Sign in to approve your laptop.' : 'Your agents, wherever you are.'}
-        description="Securely control Claude and Codex sessions running on your own laptop. No inbound ports or public daemon."
+        description="Securely control Claude Code, Codex, Cursor, and Antigravity sessions running on your own laptop. No inbound ports or public daemon."
       />
       <Card>
         <CardHeader>
