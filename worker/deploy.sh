@@ -4,7 +4,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKER_DIR="$ROOT_DIR/worker"
 APP_URL="${APP_URL:-https://zero-labs-nine.vercel.app}"
-VERCEL_PROJECT="${VERCEL_PROJECT:-zero-labs-nine}"
+VERCEL_PROJECT="${VERCEL_PROJECT:-zero-labs}"
 VERCEL_SCOPE="${VERCEL_SCOPE:-ramulp12h-8763s-projects}"
 DATABASE_NAME="${DATABASE_NAME:-forge}"
 SECRETS_FILE="$ROOT_DIR/.forge-deploy.env"
@@ -174,12 +174,14 @@ fi
 [[ -n "$worker_url" ]] || fail "Worker deployed, but its URL could not be detected. Re-run with CLOUDFLARE_WORKER_URL=https://<worker>.workers.dev."
 
 log "Linking the Vercel project and setting relay variables"
-npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE"
+# Use the pre-authenticated local CLI. `npx vercel@latest` fetches a fresh
+# version that is not logged in and fails with "no access to account".
+vercel link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE"
 set_vercel_env CLOUDFLARE_WORKER_URL "$worker_url"
 set_vercel_env WORKER_PROXY_SECRET "$WORKER_PROXY_SECRET"
 
 log "Redeploying the Vercel application with the new variables"
-npx --yes vercel@latest deploy --prod --yes --scope "$VERCEL_SCOPE"
+vercel deploy --prod --yes --scope "$VERCEL_SCOPE"
 
 log "Deployment complete"
 printf 'App:    %s\nWorker: %s\nD1:     %s (%s)\n' "$APP_URL" "$worker_url" "$DATABASE_NAME" "$database_id"

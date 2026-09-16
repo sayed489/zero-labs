@@ -24,3 +24,5 @@ __pycache__/
 # Wrangler local dev state (D1, Durable Objects, cache)
 .wrangler/
 worker/.wrangler/
+.vercel
+.env*
