@@ -73,9 +73,35 @@ describe_env_search() {
 set_vercel_env() {
   local key="$1" value="$2" target
   for target in production preview development; do
-    npx --yes vercel@latest env rm "$key" "$target" --yes --scope "$VERCEL_SCOPE" >/dev/null 2>&1 || true
-    printf '%s' "$value" | npx --yes vercel@latest env add "$key" "$target" --scope "$VERCEL_SCOPE" >/dev/null
+    vercel env rm "$key" "$target" --yes --scope "$VERCEL_SCOPE" >/dev/null 2>&1 || true
+    printf '%s' "$value" | vercel env add "$key" "$target" --scope "$VERCEL_SCOPE" >/dev/null
   done
+}
+
+# Persist deployed values into .env.local so local runs and future deploys
+# reuse the same Worker URL and secrets instead of regenerating them.
+update_env_local() {
+  local env_file="$ROOT_DIR/.env.local"
+  python3 - "$env_file" "$@" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+updates = dict(pair.split("=", 1) for pair in sys.argv[2:])
+lines = path.read_text().splitlines() if path.is_file() else []
+seen = set()
+out = []
+for raw in lines:
+    stripped = raw.strip()
+    key = stripped.split("=", 1)[0].strip() if "=" in stripped and not stripped.startswith("#") else None
+    if key in updates:
+        out.append(f"{key}='{updates[key]}'")
+        seen.add(key)
+    else:
+        out.append(raw)
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f"{key}='{value}'")
+path.write_text("\n".join(out) + "\n")
+PY
 }
 
 require python3
@@ -172,6 +198,14 @@ if [[ -z "$worker_url" ]]; then
   worker_url="${CLOUDFLARE_WORKER_URL:-}"
 fi
 [[ -n "$worker_url" ]] || fail "Worker deployed, but its URL could not be detected. Re-run with CLOUDFLARE_WORKER_URL=https://<worker>.workers.dev."
+
+log "Saving deployed values to .env.local"
+update_env_local \
+  "CLOUDFLARE_WORKER_URL=$worker_url" \
+  "WORKER_PROXY_SECRET=$WORKER_PROXY_SECRET" \
+  "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET" \
+  "D1_DATABASE_ID=$database_id" \
+  "VERCEL_PROJECT=$VERCEL_PROJECT"
 
 log "Linking the Vercel project and setting relay variables"
 # Use the pre-authenticated local CLI. `npx vercel@latest` fetches a fresh

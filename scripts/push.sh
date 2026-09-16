@@ -47,6 +47,8 @@ PY
 }
 
 TOKEN="${GITHUB_TOKEN:-$(read_env GITHUB_TOKEN)}"
+# Fall back to the v0-provided project variable when .env.local has no token.
+TOKEN="${TOKEN:-${GITHUB_FINE_GRAINED_PAT:-$(read_env GITHUB_FINE_GRAINED_PAT)}}"
 REPO="${GITHUB_REPO:-$(read_env GITHUB_REPO)}"
 BRANCH="${GITHUB_BRANCH:-$(read_env GITHUB_BRANCH)}"
 REPO="${REPO:-sayed489/zero-labs}"
