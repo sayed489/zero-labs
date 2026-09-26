@@ -46,6 +46,7 @@ const sansFont = localFont({
   fallback: ['Arial', 'sans-serif'],
 })
 
+// ✅ PIPELINE TEST — deployed via GitHub Actions at 2026-09-26T21:20 IST
 export const metadata: Metadata = {
   title: 'Forge — your computer, in your pocket',
   description:
