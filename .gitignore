@@ -4,9 +4,9 @@ __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
 .snowflake/
 .v0-trash/
-.vercel/
 
-# Environment variables
+# Environment variables — kept local, never committed.
+# All values are stored in Vercel. Run: vercel env pull .env.local
 .env*.local
 
 # Common ignores
@@ -24,3 +24,5 @@ relay/worker/.wrangler/
 
 # Scratch build dir for the end-to-end tests' dev server (FORGE_DIST_DIR)
 .next-e2e/
+
+# NOTE: .vercel/ is intentionally tracked so Vercel project links work for all agents/CI
