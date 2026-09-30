@@ -111,3 +111,15 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'empty'):
                 self.ns['install_agy_payload'](target, b'', 'https://example.com/agy')
             self.assertEqual(target.read_bytes(), b'working')
+
+    def test_reinstall_refreshes_only_installer_owned_patch_targets(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            (home / '.git').mkdir()
+            commands = Mock()
+            with patch.dict(self.ns, AGENT_HOME=home, run=commands), patch.object(self.ns['shutil'], 'which', return_value='/usr/bin/git'):
+                self.ns['install_daemon']()
+            restore = commands.call_args_list[-1].args[0]
+            self.assertEqual(restore[:4], ['git', '-C', str(home), 'restore'])
+            self.assertEqual(restore[restore.index('--') + 1:], [
+                'daemon/agentremoted/jobs.py', 'daemon/agentremoted/providers/__init__.py', 'daemon/agentremoted/server.py'])

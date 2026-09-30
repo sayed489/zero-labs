@@ -266,6 +266,11 @@ def install_daemon():
         run(["git", "clone", "--filter=blob:none", DAEMON_REPOSITORY, str(AGENT_HOME)])
     run(["git", "-C", str(AGENT_HOME), "fetch", "--depth", "1", "origin", DAEMON_COMMIT])
     run(["git", "-C", str(AGENT_HOME), "checkout", "--detach", DAEMON_COMMIT])
+    # Reinstalling the same commit preserves modified tracked files by default.
+    # Reset only installer-owned overlay targets before applying current patches.
+    run(["git", "-C", str(AGENT_HOME), "restore", "--source", DAEMON_COMMIT, "--worktree", "--",
+         "daemon/agentremoted/jobs.py", "daemon/agentremoted/providers/__init__.py", "daemon/agentremoted/server.py"])
+
 
 
 def which_cli(name):
