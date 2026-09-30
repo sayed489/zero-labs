@@ -233,3 +233,16 @@ class FlavorKeyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AntigravityTargetTests(unittest.TestCase):
+    def test_prompt_is_one_argument(self):
+        binary = fake_cli(CLAUDE_LIKE_HELP)
+        cmd = cli_launch.build_headless_cmd(binary, "open youtube", flavor="agy")
+        self.assertEqual(cmd[-1], "open youtube")
+        self.assertEqual(cmd.count("open youtube"), 1)
+
+    def test_ide_launcher_is_rejected(self):
+        binary = fake_cli("Usage: antigravity [paths...] --goto --diff")
+        with self.assertRaisesRegex(ValueError, "IDE"):
+            cli_launch.build_headless_cmd(binary, "open youtube", flavor="agy")

@@ -161,7 +161,7 @@ def refresh_cli_bins(config):
     if config is None:
         return
     mapping = (
-        ("agy_bin", ("agy", "antigravity")),
+        ("agy_bin", ("agy",)),
         ("claude_bin", ("claude",)),
         ("cursor_bin", ("agent", "cursor-agent")),
         ("codex_bin", ("codex",)),
@@ -200,8 +200,8 @@ def resolve_bin(name, env=None):
         "agent": ["agent", "cursor-agent"],
         "cursor-agent": ["agent", "cursor-agent"],
         "cursor": ["agent", "cursor-agent"],
-        "agy": ["agy", "antigravity"],
-        "antigravity": ["agy", "antigravity"],
+        "agy": ["agy"],
+        "antigravity": ["agy"],
         "opencode": ["opencode"],
         "copilot": ["copilot"],
         "github": ["copilot"],
@@ -317,6 +317,7 @@ def detect_cli_flags(exec_path):
         model_flag = ""
     flags = {
         "help": bool(help_text.strip()),
+        "ide_launcher": "--goto" in lower and "--diff" in lower,
         "print_flag": print_flag,
         "model_flag": model_flag,
         "output_format": "--output-format" in lower,
@@ -448,6 +449,8 @@ def build_headless_cmd(binary, prompt, session_id="", permission_mode="", flavor
     if flavor == "copilot":
         return _build_copilot_cmd(binary, prompt, model, permission_mode)
     flags = detect_cli_flags(binary)
+    if flavor == "agy" and flags.get("ide_launcher"):
+        raise ValueError("This executable opens the Antigravity IDE, not agent tasks. Install the agy CLI and pair again.")
     defaults = _FLAVOR_DEFAULTS.get(flavor) or {}
     cmd = [binary]
 

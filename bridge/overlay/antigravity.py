@@ -51,7 +51,7 @@ class AntigravityRunner:
 
     def auth_health(self):
         raw = self._bin()
-        path = resolve_bin(raw) or resolve_bin("agy") or resolve_bin("antigravity")
+        path = resolve_bin(raw) or resolve_bin("agy")
         on_path = bool(path)
         creds = Path.home() / ".gemini" / "antigravity-cli"
         logged_in = creds.exists() or bool(os.environ.get("GEMINI_API_KEY"))
@@ -80,7 +80,7 @@ class AntigravityRunner:
 
     def prepare(self, job, mode):
         raw = self._bin()
-        binary = resolve_bin(raw) or resolve_bin("agy") or resolve_bin("antigravity")
+        binary = resolve_bin(raw) or resolve_bin("agy")
         if not binary:
             raise RunnerError("Antigravity CLI not found. Install it, then run: agy")
         if not job.cwd:

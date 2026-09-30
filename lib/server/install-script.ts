@@ -386,7 +386,7 @@ def agy_binary_path():
 
 
 def install_antigravity():
-    existing = which_cli("agy") or which_cli("antigravity")
+    existing = which_cli("agy")
     if existing:
         return existing
     binary = agy_binary_path()
@@ -468,7 +468,7 @@ def prepare_cli(preferred=""):
     preferred = {"agy": "antigravity", "agent": "cursor", "cursor-agent": "cursor", "claude-code": "claude", "openai": "codex", "open-code": "opencode", "github": "copilot", "gh": "copilot", "github-copilot": "copilot"}.get(preferred, preferred)
     found = {}
     specs = (
-        ("antigravity", ("agy", "antigravity")),
+        ("antigravity", ("agy",)),
         ("claude", ("claude",)),
         ("cursor", ("agent", "cursor-agent")),
         ("codex", ("codex",)),
