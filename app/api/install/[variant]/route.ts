@@ -46,7 +46,7 @@ type Context = { params: Promise<{ variant: string }> }
 
 export async function GET(request: Request, { params }: Context) {
   const { variant } = await params
-  const entry = VARIANTS[variant as Variant]
+  const entry = Object.hasOwn(VARIANTS, variant) ? VARIANTS[variant as Variant] : undefined
   if (!entry) {
     return new Response(`Unknown installer variant: ${variant}\n`, { status: 404 })
   }

@@ -228,6 +228,13 @@ test('send a prompt: browser → Next.js → relay → bridge → daemon → CLI
   // A cross-origin page cannot mint codes (CSRF).
   const csrf = await appFetch('/api/pair', { method: 'POST', origin: 'https://evil.example' });
   assert.equal(csrf.status, 403, 'cross-origin pairing must be blocked');
+  const tenantCsrf = await appFetch('/api/pair', { method: 'POST', origin: 'https://unrelated.vercel.app' });
+  assert.equal(tenantCsrf.status, 403, 'unrelated preview tenants must not be trusted');
+  for (const variant of ['__proto__', 'constructor', 'toString', 'unknown']) {
+    const invalidInstaller = await appFetch(`/api/install/${variant}`);
+    assert.equal(invalidInstaller.status, 404, `installer variant ${variant} must return 404, not throw`);
+  }
+
 
   const claim = await appFetch('/api/pair/claim', {
     method: 'POST',
