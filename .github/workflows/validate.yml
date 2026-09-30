@@ -22,6 +22,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: python -m venv .venv && .venv/bin/pip install websocket-client==1.8.0 'cryptography>=42'
       - run: pnpm typecheck
+      - run: pnpm --filter forge-relay typecheck
       - run: .venv/bin/python -m unittest discover -s bridge/tests
       - run: pnpm test
       - run: pnpm build
