@@ -33,6 +33,6 @@ Copy `.env.example` to `.env.local` and fill in what you need. Read
 `docs/repo-layout.md` for where things live, and `relay/PROTOCOL.md` before
 touching either relay.
 
-Deployed at https://clone-github-repository-olive.vercel.app — the Cloudflare
+Deployed at https://zero-labs-kappa.vercel.app — the Cloudflare
 Worker relay (`relay/worker`) carries production traffic; the Node relay
 (`relay/node`) is the same protocol for development and self-hosting.

@@ -8,7 +8,8 @@
 // xterm.js is imported lazily inside the effect because it touches `window`
 // at module scope and must never run during server rendering.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import type { Terminal as XtermTerminal } from '@xterm/xterm'
 
 import {
   TerminalConnection,
@@ -45,6 +46,7 @@ export function MachineTerminal({
   hostname?: string
 }) {
   const mountRef = useRef<HTMLDivElement>(null)
+  const clientKey = useId()
   const [status, setStatus] = useState<TerminalStatus>('connecting')
   const [detail, setDetail] = useState('')
   const [title, setTitle] = useState('')
@@ -55,73 +57,93 @@ export function MachineTerminal({
 
     let disposed = false
     let connection: TerminalConnection | null = null
-    let cleanup = () => {}
+    let terminal: XtermTerminal | null = null
+    let onData: { dispose(): void } | null = null
+    let onResize: { dispose(): void } | null = null
+    let observer: ResizeObserver | null = null
+    let resizeFallback: (() => void) | null = null
+
+    const cleanup = () => {
+      observer?.disconnect()
+      if (resizeFallback) window.removeEventListener('resize', resizeFallback)
+      onData?.dispose()
+      onResize?.dispose()
+      connection?.detach()
+      terminal?.dispose()
+    }
 
     void (async () => {
-      const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
-        import('@xterm/xterm'),
-        import('@xterm/addon-fit'),
-        import('@xterm/addon-web-links'),
-      ])
-      if (disposed) return
+      try {
+        const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
+          import('@xterm/xterm'),
+          import('@xterm/addon-fit'),
+          import('@xterm/addon-web-links'),
+        ])
+        if (disposed) return
 
-      const term = new Terminal({
-        cursorBlink: true,
-        fontFamily: 'var(--font-ibm), ui-monospace, monospace',
-        fontSize: 13,
-        lineHeight: 1.2,
-        scrollback: 5_000,
-        theme: THEME,
-      })
-      const fit = new FitAddon()
-      term.loadAddon(fit)
-      term.loadAddon(new WebLinksAddon())
-      term.open(mount)
-      fit.fit()
+        terminal = new Terminal({
+          cursorBlink: true,
+          fontFamily: 'var(--font-ibm), ui-monospace, monospace',
+          fontSize: 13,
+          lineHeight: 1.2,
+          scrollback: 5_000,
+          theme: THEME,
+        })
+        const fit = new FitAddon()
+        terminal.loadAddon(fit)
+        terminal.loadAddon(new WebLinksAddon())
+        terminal.open(mount)
+        fit.fit()
 
-      connection = new TerminalConnection(
-        {
-          deviceId,
-          phoneSecret,
-          cols: term.cols,
-          rows: term.rows,
-          cwd: cwd || undefined,
-        },
-        {
-          onOutput: (data) => term.write(data),
-          onStatus: (next, message) => {
-            setStatus(next)
-            setDetail(message ?? '')
+        connection = new TerminalConnection(
+          {
+            deviceId,
+            phoneSecret,
+            clientKey,
+            cols: terminal.cols,
+            rows: terminal.rows,
+            cwd: cwd || undefined,
           },
-          onReady: (info) => {
-            setTitle(`${info.shell} — ${info.cwd}`)
-            term.focus()
+          {
+            onOutput: (data) => terminal?.write(data),
+            onStatus: (next, message) => {
+              setStatus(next)
+              setDetail(message ?? '')
+            },
+            onReady: (info) => {
+              setTitle(`${info.shell} — ${info.cwd}`)
+              terminal?.focus()
+            },
+            onExit: () => {
+              terminal?.write('\r\n\x1b[2m[shell exited — close this window to finish]\x1b[0m\r\n')
+            },
           },
-          onExit: () => {
-            term.write('\r\n\x1b[2m[shell exited — close this window to finish]\x1b[0m\r\n')
-          },
-        },
-      )
+        )
 
-      const onData = term.onData((data) => connection?.send(data))
-      const onResize = term.onResize(({ cols, rows }) => connection?.resize(cols, rows))
-      const observer = new ResizeObserver(() => {
-        try {
-          fit.fit()
-        } catch {
-          // The pane can be zero-sized mid-transition; the next tick fits fine.
+        onData = terminal.onData((data) => connection?.send(data))
+        onResize = terminal.onResize(({ cols, rows }) => connection?.resize(cols, rows))
+        const resize = () => {
+          try {
+            fit.fit()
+          } catch {
+            // The pane can be zero-sized mid-transition; the next tick fits fine.
+          }
         }
-      })
-      observer.observe(mount)
+        if (typeof ResizeObserver !== 'undefined') {
+          observer = new ResizeObserver(resize)
+          observer.observe(mount)
+        } else {
+          resizeFallback = resize
+          window.addEventListener('resize', resizeFallback)
+        }
 
-      void connection.connect()
-
-      cleanup = () => {
-        observer.disconnect()
-        onData.dispose()
-        onResize.dispose()
-        connection?.detach()
-        term.dispose()
+        void connection.connect()
+      } catch (cause) {
+        cleanup()
+        if (!disposed) {
+          setStatus('offline')
+          setDetail(cause instanceof Error ? cause.message : 'Terminal could not be initialized')
+        }
       }
     })()
 

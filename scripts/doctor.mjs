@@ -127,6 +127,12 @@ function checkEnv() {
     const shown = value ? (variable.secret ? `${value.slice(0, 4)}… (${value.length} chars)` : value) : ''
 
     if (!value) {
+      const hasSupabaseAlternative =
+        (variable.name === 'NEXT_PUBLIC_SUPABASE_ANON_KEY' &&
+          (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '').trim()) ||
+        (variable.name === 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY' &&
+          (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim())
+      if (hasSupabaseAlternative) continue
       if (variable.required) fail(`${variable.name} is not set`, variable.without)
       else warn(`${variable.name} is not set`, variable.without)
       continue
@@ -146,11 +152,13 @@ function checkEnv() {
     ok(`${variable.name}`, shown)
   }
 
-  const supabase = ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'].map(
-    (name) => Boolean((process.env[name] ?? '').trim()),
+  const hasSupabaseUrl = Boolean((process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim())
+  const hasSupabaseKey = Boolean(
+    (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '').trim() ||
+      (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim(),
   )
-  if (supabase[0] !== supabase[1]) {
-    fail('Supabase is half-configured', 'both the URL and the anon key are needed, or neither')
+  if (hasSupabaseUrl !== hasSupabaseKey) {
+    fail('Supabase is half-configured', 'set the project URL and either a publishable or anon key, or neither')
   }
 }
 
@@ -189,7 +197,9 @@ async function checkRelay() {
 async function checkSupabase() {
   heading('supabase')
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim()
-  const key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim()
+  const key =
+    (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '').trim() ||
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim()
   if (!url || !key) {
     warn('accounts are off', 'device-only mode: pairing works, machines do not follow the user between browsers')
     return
@@ -200,8 +210,8 @@ async function checkSupabase() {
       headers: { apikey: key },
       signal: AbortSignal.timeout(10_000),
     })
-    if (auth.ok) ok('project reached with the anon key')
-    else fail('the anon key was rejected', `HTTP ${auth.status} — check it is the anon key, not the service role key`)
+    if (auth.ok) ok('project reached with the public API key')
+    else fail('the public API key was rejected', `HTTP ${auth.status} — check the URL and publishable/anon key pair`)
   } catch (cause) {
     fail('supabase is unreachable', String(cause?.message ?? cause))
     return

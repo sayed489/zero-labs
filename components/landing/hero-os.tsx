@@ -6,7 +6,7 @@
  * The hero computer is small, so it runs four windows and nothing else:
  *
  *   Terminal   the demo shell — or the REAL PTY on your laptop once it is paired
- *   Connect    the real pairing flow (code + install command), see pairing/
+ *   Connect    the compact pairing flow: platform, install command and status
  *   Agent      which CLI is selected, and a jump to the prompt composer
  *   About      what this machine is, and how to drive it
  *
@@ -39,6 +39,7 @@ export function HeroOs({
   selection: CliSelection
   onJump(section: string): void
 }) {
+  const router = useRouter()
   const apps: OsApp[] = [
     {
       id: 'terminal',
@@ -60,10 +61,11 @@ export function HeroOs({
       body: (
         <PairPanel
           pairing={pairing}
-          cliName={selection.profile.name}
           compact
-          onChangeCli={() => onJump('agent')}
-          onContinue={() => onJump('terminal')}
+          machineOnline={paired.online}
+          machineStatusKnown={paired.ready}
+          machineHostname={paired.hostname}
+          onContinue={() => router.push('/console')}
         />
       ),
     },

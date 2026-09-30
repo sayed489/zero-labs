@@ -12,14 +12,14 @@
  *   01 hero     the small front-view Zero OS machine on a neutral pegboard
  *   02 agent    CLI selector that behaves like a model selector, with flags
  *   03 terminal real PTY when paired, demo shell when not
- *   04 pair     the install command and exactly what it touches
+ *   04 pair     the compact install command, pairing status and console action
  *   05 prompt   the last section: plain English straight to the CLI
  *
  * Everything below the hero is ordinary document flow — no canvas, no video, no
  * parallax. The machine is the only "special" thing on the page.
  */
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { OsButton } from '@/components/computer/os/os-ui'
@@ -38,6 +38,7 @@ export function LandingPage() {
   const selection = useCliSelection()
   const paired = usePairedMachine()
   const [justConnected, setJustConnected] = useState(false)
+  const [bannerLeaving, setBannerLeaving] = useState(false)
 
   const pairing = usePairing({
     cli: selection.cli,
@@ -46,7 +47,11 @@ export function LandingPage() {
     autoStart: false,
     onOnline: () => {
       paired.refresh() // the terminal + prompt sections switch to live
+      setBannerLeaving(false)
       setJustConnected(true)
+      window.requestAnimationFrame(() => {
+        document.getElementById('terminal')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     },
   })
 
@@ -62,6 +67,16 @@ export function LandingPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!justConnected) return
+    const leaveTimer = window.setTimeout(() => setBannerLeaving(true), 3_650)
+    const dismissTimer = window.setTimeout(() => setJustConnected(false), 4_000)
+    return () => {
+      window.clearTimeout(leaveTimer)
+      window.clearTimeout(dismissTimer)
+    }
+  }, [justConnected])
+
   return (
     <div className="land">
       <a className="land-skip" href="#prompt">
@@ -73,24 +88,28 @@ export function LandingPage() {
         <HeroSection pairing={pairing} paired={paired} selection={selection} onJump={onJump} />
         <AgentSection selection={selection} />
         <TerminalSection paired={paired} pairing={pairing} onJump={onJump} />
-        <PairSection pairing={pairing} selection={selection} onJump={onJump} />
+        <PairSection pairing={pairing} paired={paired} onContinue={() => router.push('/console')} />
         <PromptSection paired={paired} pairing={pairing} selection={selection} onJump={onJump} />
       </main>
 
       <SiteFooter />
 
       {justConnected ? (
-        <div className="land-connected" role="status">
+        <div className={`land-connected${bannerLeaving ? ' land-connected--leaving' : ''}`} role="status">
           <span className="land-connected-led" aria-hidden="true" />
-          <div className="land-connected-text">
-            <strong>{pairing.hostname || 'Your laptop'} is connected.</strong>
-            <span>The terminal below is now the real PTY. The console has files, agents and the CD tray.</span>
-          </div>
+          <strong>Connected! {pairing.hostname || paired.hostname || 'Your laptop'} is live.</strong>
           <div className="land-connected-actions">
             <OsButton variant="primary" onClick={() => router.push('/console')}>
               Open console →
             </OsButton>
-            <OsButton onClick={() => setJustConnected(false)}>Stay here</OsButton>
+            <OsButton
+              onClick={() => {
+                setJustConnected(false)
+                setBannerLeaving(false)
+              }}
+            >
+              Dismiss
+            </OsButton>
           </div>
         </div>
       ) : null}

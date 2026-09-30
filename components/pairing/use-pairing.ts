@@ -93,6 +93,19 @@ export function usePairing({
   const cliRef = useRef(cli)
   cliRef.current = cli
 
+  // Persist after either event order: the visitor may sign in before pairing,
+  // or connect the laptop first and sign in later (for example on a phone).
+  useEffect(() => {
+    if (!account.enabled || !account.user || status !== 'online') return
+    if (!session?.deviceId || !session.phoneSecret) return
+    void saveMachineToAccount({
+      deviceId: session.deviceId,
+      phoneSecret: session.phoneSecret,
+      name: session.hostname,
+      platform,
+    })
+  }, [account.enabled, account.user?.id, platform, session?.deviceId, session?.hostname, session?.phoneSecret, status])
+
   // -- environment + stored session -------------------------------------------
   useEffect(() => {
     setPlatform(/Windows/i.test(navigator.userAgent) ? 'windows' : 'unix')
@@ -146,6 +159,7 @@ export function usePairing({
   useEffect(() => {
     if (!session?.code || !session.phoneSecret) return
     let finished = false
+    let stopPolling = () => {}
 
     const applyDevice = (device: WorkerDevice | undefined, claimed: boolean) => {
       const next: ForgeSession = {
@@ -161,16 +175,9 @@ export function usePairing({
       if (device?.online) {
         if (finished) return
         finished = true
+        stopPolling()
         setStatus('online')
         void playDing()
-        if (account.enabled && account.user) {
-          void saveMachineToAccount({
-            deviceId: next.deviceId || '',
-            phoneSecret: next.phoneSecret,
-            name: next.hostname,
-            platform,
-          })
-        }
         onOnlineRef.current?.(next)
         return
       }
@@ -221,6 +228,7 @@ export function usePairing({
         setError(cause instanceof Error ? cause.message : 'Could not reach the relay')
       },
     })
+    stopPolling = () => poll.stop()
 
     return () => {
       finished = true
@@ -237,8 +245,10 @@ export function usePairing({
     try {
       await navigator.clipboard.writeText(text)
     } catch {
+      setError('Clipboard access is unavailable. Select the install command and copy it manually.')
       return
     }
+    setError('')
     setCopied(true)
     void playDing()
     window.setTimeout(() => setCopied(false), 1600)

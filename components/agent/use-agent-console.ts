@@ -195,25 +195,36 @@ export function useAgentConsole({
      * without it every job ran the CLI's own default, whatever the picker said.
      */
     model?: string
-  }) {
+  }): Promise<boolean> {
     const text = (overrides?.text ?? prompt).trim()
-    if (!text || sending || !deviceId || !phoneSecret) return
+    if (!text) {
+      setError('Type a prompt before sending it.')
+      return false
+    }
+    if (sending || Boolean(jobId && (!job || jobIsActive(job.status)))) {
+      setError('A prompt is already running on this laptop. Wait for it to finish or stop it first.')
+      return false
+    }
+    if (!deviceId || !phoneSecret) {
+      setError('This browser is not paired to a laptop. Pair one, then send again.')
+      return false
+    }
     if (!online) {
       setError('Laptop is offline. Keep the Forge bridge running on that machine.')
-      return
+      return false
     }
     if (!daemonOnline) {
       setError('The laptop is online, but the local agent daemon did not answer. Re-run the install command so the daemon and bridge restart.')
-      return
+      return false
     }
     const workingDir = (overrides?.cwd ?? cwd).trim()
     if (!workingDir) {
-      setError('The laptop home directory is not available yet. Wait for Daemon ready, then send again.')
-      return
+      setError('The laptop folder is not available yet. Wait for the daemon to finish connecting, then send again.')
+      return false
     }
+
     setSending(true)
     setError('')
-    setEvents((current) => [...current, { seq: -Date.now(), kind: 'user', text }])
     try {
       let nextPing = ping
       try {
@@ -227,8 +238,9 @@ export function useAgentConsole({
       const selected = requested && candidates.includes(requested) ? requested : pickReadyProvider(nextPing)
       const queue = selected ? [selected, ...candidates.filter((name) => name !== selected)] : candidates
       if (!queue.length) {
-        setError('No coding CLI is available on this laptop yet. Re-run pairing and pick a CLI.')
-        return
+        setError('No coding CLI is available on this laptop yet. Re-run the Forge install command, then try again.')
+        void playError()
+        return false
       }
       setCliMessage(cliSetupMessage(nextPing, queue[0]))
       // 'default' on the wire, never '': an empty mode means "use this laptop's
@@ -258,27 +270,34 @@ export function useAgentConsole({
               body: JSON.stringify({ prompt: text, cwd: workingDir, permission_mode: mode, provider: name, model }),
             })
           }
-          if (!result.job_id) throw new Error('The daemon did not return a job id.')
+          if (!result.job_id) throw new Error('The daemon accepted the request but did not return a job id.')
           setProvider(name)
           setPrompt('')
           seqRef.current = 0
           setJob(null)
+          setEvents((current) => [...current, { seq: -Date.now(), kind: 'user', text }])
           setJobId(result.job_id)
           writeConsolePrefs({ cwd: workingDir, provider: name, sessionId: name === selected ? sessionId : '' })
           if (name !== selected) setSessionId('')
-          return
+          return true
         } catch (cause) {
           const message = cause instanceof DeviceRpcError ? cause.message : 'Could not send the prompt to the laptop.'
           lastError = `${providerLabel(name)}: ${message}`
           const missing = /failed to launch|not found|WinError 2|cannot find|missing/i.test(message)
           if (!missing && !(cause instanceof DeviceRpcError && cause.status === 404)) {
             setError(lastError)
-            return
+            void playError()
+            return false
           }
         }
       }
       setError(lastError || 'No installed CLI could start this prompt.')
       void playError()
+      return false
+    } catch (cause) {
+      setError(cause instanceof DeviceRpcError ? cause.message : 'Could not send the prompt to the laptop.')
+      void playError()
+      return false
     } finally {
       setSending(false)
     }
