@@ -615,7 +615,7 @@ class Bridge:
                 cols=cols,
                 rows=rows,
                 cwd=cwd,
-                shell=message.get("shell"),
+                shell=message.get("shell") or self.config.get("cliCommand"),
             )
         except (PtyUnavailable, OSError) as error:
             self.send_text(

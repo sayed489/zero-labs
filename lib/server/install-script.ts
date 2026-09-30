@@ -464,7 +464,8 @@ def install_claude():
     return which_cli("claude")
 
 
-def prepare_cli():
+def prepare_cli(preferred=""):
+    preferred = {"agy": "antigravity", "agent": "cursor", "cursor-agent": "cursor", "claude-code": "claude", "openai": "codex", "open-code": "opencode", "github": "copilot", "gh": "copilot", "github-copilot": "copilot"}.get(preferred, preferred)
     found = {}
     specs = (
         ("antigravity", ("agy", "antigravity")),
@@ -475,23 +476,32 @@ def prepare_cli():
         ("copilot", ("copilot",)),
         ("grok", ("grok",)),
     )
+    if preferred and preferred not in dict(specs):
+        fail("Unknown selected CLI: " + preferred)
     for name, aliases in specs:
+        if preferred and name != preferred:
+            continue
         for alias in aliases:
             path = which_cli(alias)
             if path:
                 found[name] = path
                 print("Found " + name + " CLI: " + path)
                 break
-    if "antigravity" not in found:
+    if preferred in ("", "antigravity") and "antigravity" not in found:
         installed = install_antigravity()
         if installed:
             found["antigravity"] = installed
             print("Using Antigravity CLI: " + installed)
-    if "antigravity" not in found and "claude" not in found:
+    if preferred in ("", "claude") and "antigravity" not in found and "claude" not in found:
         installed = install_claude()
         if installed:
             found["claude"] = installed
             print("Installed Claude Code CLI: " + installed)
+    if preferred:
+        if preferred not in found:
+            fail("Selected CLI " + preferred + " was not found. Install it and rerun; Forge will not substitute another agent.")
+        print("Using selected CLI: " + preferred)
+        return found
     if not found:
         print("No coding CLI is available yet. Forge will still connect.")
         print("Install Antigravity (agy) or Claude Code, then log in.")
@@ -833,7 +843,7 @@ def main():
     run([python, "-m", "pip", "install", "--disable-pip-version-check", "--quiet"] + packages)
     fetch_bridge()
     print("Looking for the coding CLI on this laptop...")
-    found = prepare_cli()
+    found = prepare_cli(preferred)
     print("Installing pinned local daemon...")
     install_daemon()
     print("Wiring Claude, Codex, Cursor, OpenCode, and Copilot launchers...")
@@ -850,6 +860,8 @@ def main():
         "deviceToken": token,
         "workerWebSocketUrl": ws_url,
         "daemonUrl": "http://127.0.0.1:" + str(DAEMON_PORT),
+        "preferredCli": next(iter(found), ""),
+        "cliCommand": [next(iter(found.values()))] if found else None,
     }
     (FORGE_HOME / "config.json").write_text(json.dumps(config, indent=2) + "\\n", encoding="utf-8")
     if os.name == "nt":
