@@ -576,6 +576,16 @@ def overlay_daemon():
         fail("could not patch daemon providers")
     server = daemon / "server.py"
     server_text = server.read_text(encoding="utf-8")
+    # The installer clones upstream, so apply the disconnect fix there too.
+    start = server_text.index("    def _send_json_bytes(")
+    end = server_text.index("    def _error(", start)
+    writer = server_text[start:end]
+    if "except (ConnectionAbortedError" not in writer:
+        body_start = writer.index("        self.send_response(status)")
+        body = writer[body_start:].rstrip()
+        writer = writer[:body_start] + "        try:\\n" + "\\n".join("    " + line for line in body.splitlines()) + "\\n        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):\\n            self.close_connection = True\\n\\n"
+        server_text = server_text[:start] + writer + server_text[end:]
+    server.write_text(server_text, encoding="utf-8")
     ping_old = "        if path == \\"/api/ping\\":"
     ping_new = (
         "        if path == \\"/api/ping\\":\\n"
