@@ -700,6 +700,20 @@ def daemon_env():
     return env
 
 
+def wait_bridge_ready(timeout=90):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            ready = json.loads((FORGE_HOME / "bridge-ready.json").read_text(encoding="utf-8"))
+            config = json.loads((FORGE_HOME / "config.json").read_text(encoding="utf-8"))
+            if ready.get("deviceId") == config.get("deviceId") and 0 <= time.time() - ready["ackAt"] < 20:
+                return True
+        except (OSError, ValueError, KeyError):
+            pass
+        time.sleep(0.5)
+    return False
+
+
 def start_processes(python_executable):
     spawn_detached(
         [python_executable, "-m", "agentremoted", "--bind", "127.0.0.1", "--port", str(DAEMON_PORT)],
@@ -808,6 +822,7 @@ def main():
     preferred = sys.argv[2].strip().lower() if len(sys.argv) > 2 else ""
     FORGE_HOME.mkdir(parents=True, exist_ok=True)
     kill_old_forge()
+    (FORGE_HOME / "bridge-ready.json").unlink(missing_ok=True)
     print("Installing isolated Python environment...")
     if not VENV_HOME.exists():
         run([sys.executable, "-m", "venv", str(VENV_HOME)])
@@ -846,6 +861,8 @@ def main():
             start_processes(python)
         elif not wait_port(BRIDGE_LOCK_PORT, 25):
             start_processes(python)
+    if not wait_bridge_ready():
+        fail("bridge is installed but the relay connection is not stable yet. It will keep retrying; see " + str(FORGE_HOME / "bridge.log"))
     print("Forge is installed and connected. You can close this window.")
     if "antigravity" in found:
         print("Next: open a new Command Prompt and run: agy")
