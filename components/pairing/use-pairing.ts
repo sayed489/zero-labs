@@ -93,6 +93,19 @@ export function usePairing({
   const cliRef = useRef(cli)
   cliRef.current = cli
 
+  // Persist after either event order: the visitor may sign in before pairing,
+  // or connect the laptop first and sign in later (for example on a phone).
+  useEffect(() => {
+    if (!account.enabled || !account.user || status !== 'online') return
+    if (!session?.deviceId || !session.phoneSecret) return
+    void saveMachineToAccount({
+      deviceId: session.deviceId,
+      phoneSecret: session.phoneSecret,
+      name: session.hostname,
+      platform,
+    })
+  }, [account.enabled, account.user?.id, platform, session?.deviceId, session?.hostname, session?.phoneSecret, status])
+
   // -- environment + stored session -------------------------------------------
   useEffect(() => {
     setPlatform(/Windows/i.test(navigator.userAgent) ? 'windows' : 'unix')
@@ -163,14 +176,6 @@ export function usePairing({
         finished = true
         setStatus('online')
         void playDing()
-        if (account.enabled && account.user) {
-          void saveMachineToAccount({
-            deviceId: next.deviceId || '',
-            phoneSecret: next.phoneSecret,
-            name: next.hostname,
-            platform,
-          })
-        }
         onOnlineRef.current?.(next)
         return
       }

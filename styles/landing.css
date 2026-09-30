@@ -665,6 +665,76 @@
   }
 }
 
+/* ── account sign-in ─────────────────────────────────────────────────────── */
+
+.account-page {
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  background: var(--zero-paper);
+  color: var(--zero-ink);
+  font-family: var(--font-sans), Arial, sans-serif;
+  padding: clamp(16px, 4vw, 36px);
+}
+
+.account-card {
+  width: min(100%, 520px);
+}
+
+.account-signin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-email-input {
+  width: 100%;
+  border: var(--zero-edge);
+  background: #ffffff;
+  color: var(--zero-ink);
+  padding: 8px 10px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 14px;
+}
+
+.account-email-label,
+.account-email-value {
+  margin: 0;
+}
+
+.account-email-value {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+.account-success,
+.account-error {
+  margin: 0;
+  border-left: 4px solid var(--zero-good);
+  background: var(--zero-cyan-1);
+  padding: 7px 9px;
+  color: var(--zero-ink);
+  font-size: 12px;
+}
+
+.account-error {
+  border-left-color: var(--zero-bad);
+  background: #fbeeea;
+  color: var(--zero-bad);
+}
+
+@media (max-width: 620px) {
+  .land-nav {
+    flex-wrap: wrap;
+  }
+
+  .land-nav-state {
+    width: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+  }
+}
+
 /* ── footer ─────────────────────────────────────────────────────────────── */
 
 .land-footer {

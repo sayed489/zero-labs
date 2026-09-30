@@ -54,8 +54,15 @@ export const ENV_VARS: readonly EnvVar[] = [
   {
     name: 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
     required: false,
-    purpose: 'Supabase anonymous key. Safe to expose; row-level security is what protects data.',
-    without: 'Same as above — device-only mode.',
+    purpose: 'Legacy Supabase anon JWT. Safe to expose; row-level security protects account data.',
+    without: 'Use the publishable key instead, or run in device-only mode.',
+    source: 'Supabase dashboard → Project settings → API',
+  },
+  {
+    name: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+    required: false,
+    purpose: 'Supabase publishable API key (preferred over the legacy anon JWT).',
+    without: 'Use the anon key instead, or run in device-only mode.',
     source: 'Supabase dashboard → Project settings → API',
   },
   {
@@ -113,9 +120,12 @@ export function checkEnv(): { ok: boolean; missing: EnvVar[]; set: EnvVar[]; pro
     }
   }
 
-  if (set.some((entry) => entry.name === 'NEXT_PUBLIC_SUPABASE_URL') !==
-      set.some((entry) => entry.name === 'NEXT_PUBLIC_SUPABASE_ANON_KEY')) {
-    problems.push('Supabase needs BOTH the URL and the anon key; one alone leaves accounts half-configured')
+  const hasSupabaseUrl = Boolean(read('NEXT_PUBLIC_SUPABASE_URL'))
+  const hasSupabaseKey = Boolean(
+    read('NEXT_PUBLIC_SUPABASE_ANON_KEY') || read('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'),
+  )
+  if (hasSupabaseUrl !== hasSupabaseKey) {
+    problems.push('Supabase needs the project URL and either the publishable key or the legacy anon key')
   }
 
   return { ok: missing.length === 0 && problems.length === 0, missing, set, problems }

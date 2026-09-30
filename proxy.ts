@@ -24,7 +24,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigured } from '@/lib/supabase/config'
+import { SUPABASE_KEY, SUPABASE_URL, supabaseConfigured } from '@/lib/supabase/config'
 
 /** Supabase names its auth cookies `sb-<project-ref>-auth-token`. */
 function hasSessionCookie(request: NextRequest) {
@@ -38,23 +38,27 @@ export async function proxy(request: NextRequest) {
   if (!hasSessionCookie(request)) return NextResponse.next()
 
   let response = NextResponse.next({ request })
-  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll()
+  try {
+    const supabase = createServerClient(SUPABASE_URL, SUPABASE_KEY, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          for (const { name, value } of cookiesToSet) request.cookies.set(name, value)
+          response = NextResponse.next({ request })
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options)
+          }
+        },
       },
-      setAll(cookiesToSet) {
-        for (const { name, value } of cookiesToSet) request.cookies.set(name, value)
-        response = NextResponse.next({ request })
-        for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, options)
-        }
-      },
-    },
-  })
+    })
 
-  // Touch the session so expired tokens are rotated in the cookie.
-  await supabase.auth.getUser()
+    // Touch the session so expired tokens are rotated in the cookie.
+    await supabase.auth.getUser()
+  } catch {
+    // Supabase being down must not take the machine-only APIs or app offline.
+  }
   return response
 }
 

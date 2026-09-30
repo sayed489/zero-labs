@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { loadAccountMachines } from '@/lib/client/account'
+import { loadAccountMachines, useAccount } from '@/lib/client/account'
 import {
   FORGE_SESSION_KEY,
   clearForgeSession,
@@ -27,7 +27,6 @@ import {
   type ForgeSession,
 } from '@/lib/client/forge-session'
 import { startPolitePolling } from '@/lib/client/polite-polling'
-import { supabaseBrowser } from '@/lib/supabase/client'
 import { PRESENCE_POLL_SCHEDULE } from '@/lib/shared/poll-schedule'
 
 type DeviceStatus = {
@@ -72,6 +71,7 @@ export function usePairedMachine({
   const [online, setOnline] = useState(false)
   const [daemonOnline, setDaemonOnline] = useState(false)
   const [hostname, setHostname] = useState('')
+  const account = useAccount()
   const pollRef = useRef<{ tick(): void } | null>(null)
   const callbacks = useRef({ onConnected, onNoMachine })
   callbacks.current = { onConnected, onNoMachine }
@@ -86,14 +86,23 @@ export function usePairedMachine({
       setReady(true)
       return
     }
-    // In device-only mode there is no account to restore from, so do not spend
-    // a serverless invocation on /api/machines just to be told "not configured".
-    if (!restoreFromAccount || supabaseBrowser() === null) {
+
+    // Device-only mode is a first-class path: no account request is made when
+    // Supabase is missing, invalid, or the visitor is signed out.
+    if (!restoreFromAccount || !account.enabled) {
       setReady(true)
       callbacks.current.onNoMachine?.()
       return
     }
+    if (account.loading) return
+    if (!account.user) {
+      setReady(true)
+      callbacks.current.onNoMachine?.()
+      return
+    }
+
     let cancelled = false
+    setReady(false)
     void loadAccountMachines().then((machines) => {
       if (cancelled) return
       const machine = machines[0]
@@ -115,7 +124,7 @@ export function usePairedMachine({
     return () => {
       cancelled = true
     }
-  }, [restoreFromAccount])
+  }, [account.enabled, account.loading, account.user?.id, restoreFromAccount])
 
   // -- presence ---------------------------------------------------------------
   useEffect(() => {

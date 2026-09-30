@@ -98,10 +98,39 @@ test('half-configured Supabase is flagged', () => {
     () => {
       const report = checkEnv();
       assert.equal(report.ok, false);
-      assert.ok(report.problems.some((problem) => /BOTH/.test(problem)));
+      assert.ok(report.problems.some((problem) => /URL and either/.test(problem)));
     },
   );
 });
+
+test('Supabase accepts either the publishable key or the legacy anon key', () => {
+  withEnv(
+    {
+      CLOUDFLARE_WORKER_URL: 'https://relay.example.com',
+      WORKER_PROXY_SECRET: 'x'.repeat(32),
+      NEXT_PUBLIC_SUPABASE_URL: 'https://proj.supabase.co',
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test',
+    },
+    () => {
+      const report = checkEnv()
+      assert.equal(report.ok, true, JSON.stringify(report.problems))
+      assert.equal(report.problems.length, 0)
+    },
+  )
+
+  withEnv(
+    {
+      CLOUDFLARE_WORKER_URL: 'https://relay.example.com',
+      WORKER_PROXY_SECRET: 'x'.repeat(32),
+      NEXT_PUBLIC_SUPABASE_URL: 'https://proj.supabase.co',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'legacy-anon-test',
+    },
+    () => {
+      const report = checkEnv()
+      assert.equal(report.ok, true, JSON.stringify(report.problems))
+    },
+  )
+})
 
 test('relayUrl has no trailing slash, so paths never double up', () => {
   withEnv({ CLOUDFLARE_WORKER_URL: 'https://relay.example.com///' }, () => {

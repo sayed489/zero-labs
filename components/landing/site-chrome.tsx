@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation'
 
 import { ZeroLogo } from '@/components/computer/zero-logo'
 import { OsButton, OsPill } from '@/components/computer/os/os-ui'
+import { useAccount } from '@/lib/client/account'
 import type { PairedMachine } from '@/lib/client/use-paired-machine'
 
 const LINKS = [
@@ -29,6 +30,7 @@ export function SiteNav({
   onJump(section: string): void
 }) {
   const router = useRouter()
+  const account = useAccount()
   return (
     <header className="land-nav">
       <button type="button" className="land-nav-brand" onClick={() => onJump('top')}>
@@ -48,6 +50,11 @@ export function SiteNav({
       </nav>
 
       <div className="land-nav-state">
+        {account.enabled ? (
+          <OsButton onClick={() => router.push('/sign-in')}>
+            {account.user ? 'Account' : 'Sign in'}
+          </OsButton>
+        ) : null}
         <OsPill tone={paired.online ? 'good' : paired.hasSession ? 'warn' : 'idle'}>
           {paired.online ? `${paired.hostname} online` : paired.hasSession ? 'laptop offline' : 'no laptop'}
         </OsPill>

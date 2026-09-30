@@ -1,16 +1,25 @@
-// Supabase is optional until keys are pasted into .env.local:
+// Supabase account configuration. Accounts are optional: an invalid or missing
+// configuration must leave Forge in local, device-only mode instead of taking
+// down pairing, the terminal, or the landing page.
 //
-//   NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
-//   NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
-//
-// Without them every account feature quietly steps aside and Forge runs in
-// device-only mode (pairing state lives in localStorage, exactly as before).
-// Nothing else in the app is allowed to read these env vars directly.
+// Supabase accepts the newer publishable key and the legacy anon JWT. Prefer
+// the publishable key when both are configured, while keeping older Vercel
+// projects working without a migration window.
 
-// lib/server/env.ts owns the documentation and validation of these; this file
-// only turns them into a client. It must stay readable from the browser, so it
-// reads NEXT_PUBLIC_* directly rather than importing the node-only env module.
-export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim()
+const publishableKey = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '').trim()
+const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim()
 
-export const supabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
+export const SUPABASE_URL = rawUrl.replace(/\/+$/, '')
+export const SUPABASE_KEY = publishableKey || anonKey
+
+function validProjectUrl(value: string) {
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && Boolean(url.hostname)
+  } catch {
+    return false
+  }
+}
+
+export const supabaseConfigured = Boolean(SUPABASE_KEY && validProjectUrl(SUPABASE_URL))
