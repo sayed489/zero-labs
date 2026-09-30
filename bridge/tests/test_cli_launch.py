@@ -253,3 +253,14 @@ class ClaudeStreamingFlagsTest(unittest.TestCase):
         binary = fake_cli(CLAUDE_LIKE_HELP)
         cmd = cli_launch.build_headless_cmd(binary, PROMPT, flavor="claude", permission_mode="plan")
         self.assertIn("--verbose", cmd)
+
+
+class HelpLauncherTest(unittest.TestCase):
+    def test_help_uses_same_shim_launcher_as_jobs(self):
+        from unittest.mock import Mock, patch
+        wrapped = ['cmd.exe', '/c', 'agy.cmd --help']
+        with patch.object(cli_launch, 'prepare_popen', return_value=(wrapped, {})) as prepare, \
+             patch.object(cli_launch.subprocess, 'run', return_value=Mock(stdout='--goto --diff', stderr='')) as run:
+            self.assertEqual(cli_launch._help_text('agy.cmd'), '--goto --diff\n')
+            self.assertEqual(prepare.call_args.args[0], ['agy.cmd', '--help'])
+            run.assert_called_once_with(wrapped)

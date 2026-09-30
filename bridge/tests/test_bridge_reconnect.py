@@ -50,3 +50,12 @@ class ReconnectTests(unittest.TestCase):
                 self.assertEqual(json.loads(bridge.READY_PATH.read_text())['deviceId'], 'laptop')
             b.on_close(None, None, None)
             self.assertFalse(bridge.READY_PATH.exists())
+
+    def test_windows_single_instance_lock_is_exclusive(self):
+        lock = Mock()
+        with patch.object(bridge.socket, 'socket', return_value=lock), \
+             patch.object(bridge.os, 'name', 'nt'), \
+             patch.object(bridge.socket, 'SO_EXCLUSIVEADDRUSE', -5, create=True):
+            self.assertIs(bridge.acquire_single_instance(), lock)
+            lock.setsockopt.assert_called_once_with(bridge.socket.SOL_SOCKET, -5, 1)
+            lock.bind.assert_called_once_with(('127.0.0.1', bridge.LOCK_PORT))

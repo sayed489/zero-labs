@@ -205,3 +205,19 @@ class PosixPtyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class WindowsCommandTest(unittest.TestCase):
+    def test_batch_shim_is_launched_through_cmd_with_quoted_path(self):
+        from unittest.mock import patch
+        from forge_pty import _windows_command
+        with patch('forge_pty.shutil.which', return_value=None):
+            command = _windows_command([r'C:\Users\Test User\agent.CMD'], {'COMSPEC': 'cmd.exe'})
+        self.assertEqual(command, 'cmd.exe /d /s /c ""C:\\Users\\Test User\\agent.CMD""')
+
+    def test_native_executable_does_not_go_through_a_shell(self):
+        from unittest.mock import patch
+        from forge_pty import _windows_command
+        with patch('forge_pty.shutil.which', return_value=None):
+            command = _windows_command(['agy.exe', 'open youtube'], {})
+        self.assertEqual(command, 'agy.exe "open youtube"')

@@ -292,7 +292,10 @@ def _help_text(path):
     if os.name == "nt":
         kwargs["creationflags"] = CREATE_NO_WINDOW
     try:
-        proc = subprocess.run(**kwargs)
+        # Probe through the same Windows npm/.cmd launcher used for jobs.
+        # Direct CreateProcess on a batch shim can fail, hiding IDE detection.
+        command, kwargs = prepare_popen(kwargs.pop("args"), kwargs)
+        proc = subprocess.run(command, **kwargs)
         return (proc.stdout or "") + "\n" + (proc.stderr or "")
     except Exception:
         return ""

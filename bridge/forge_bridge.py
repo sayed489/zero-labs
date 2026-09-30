@@ -980,7 +980,12 @@ def acquire_single_instance():
     while True:
         lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            lock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if os.name == "nt":
+                # SO_REUSEADDR on Windows permits another bridge to steal the
+                # lock port, causing both sockets to replace each other at relay.
+                lock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                lock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             lock.bind(("127.0.0.1", LOCK_PORT))
             lock.listen(1)
             return lock

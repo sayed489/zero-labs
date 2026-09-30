@@ -420,6 +420,16 @@ def _terminal_env(cols: int, rows: int, cwd: str, session_id: str) -> dict:
     return env
 
 
+def _windows_command(argv: list[str], env: dict) -> str:
+    """CreateProcess cannot execute a .cmd/.bat shim without cmd.exe."""
+    resolved = shutil.which(argv[0], path=env.get("PATH")) or argv[0]
+    command = subprocess.list2cmdline([resolved, *argv[1:]])
+    if resolved.lower().endswith((".cmd", ".bat")):
+        comspec = env.get("COMSPEC") or r"C:\Windows\System32\cmd.exe"
+        return subprocess.list2cmdline([comspec]) + ' /d /s /c "' + command + '"'
+    return command
+
+
 def _spawn(argv: list[str], cwd: str, cols: int, rows: int, session_id: str):
     env = _terminal_env(cols, rows, cwd, session_id)
     working_dir = cwd or str(Path.home())
@@ -445,8 +455,8 @@ def _spawn(argv: list[str], cwd: str, cols: int, rows: int, session_id: str):
     except ImportError:
         PtyProcess = None
 
+    command = _windows_command(argv, env)
     if PtyProcess is not None:
-        command = subprocess.list2cmdline(argv)
         try:
             process = PtyProcess.spawn(
                 command, cwd=working_dir, dimensions=(rows, cols), env=env
@@ -466,7 +476,7 @@ def _spawn(argv: list[str], cwd: str, cols: int, rows: int, session_id: str):
 
     try:
         process = subprocess.Popen(
-            argv,
+            command,
             cwd=working_dir,
             env=env,
             stdin=subprocess.PIPE,
