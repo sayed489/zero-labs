@@ -469,6 +469,8 @@ def build_headless_cmd(binary, prompt, session_id="", permission_mode="", flavor
 
     if _use_flag(flags, "output_format", flavor) or _use_flag(flags, "stream_json", flavor):
         cmd.extend(["--output-format", "stream-json"])
+        if flavor == "claude":
+            cmd.append("--verbose")
     if _use_flag(flags, "stream_partial", flavor):
         cmd.append("--stream-partial-output")
 
@@ -566,6 +568,12 @@ def apply_codex_permission(cmd, mode):
         out.append(token)
 
     replacement = codex_sandbox_argv(mode)
+    # Approval is a root option, not an exec option in current Codex.
+    if "-a" in replacement:
+        approval = replacement.index("-a")
+        root_flags = replacement[approval:approval + 2]
+        del replacement[approval:approval + 2]
+        out[1:1] = root_flags
     if not replacement:
         return out
     try:

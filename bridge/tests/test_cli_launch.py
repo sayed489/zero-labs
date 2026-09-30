@@ -164,7 +164,7 @@ class CodexPermissionTest(unittest.TestCase):
 
     def test_plan_is_read_only(self):
         cmd = cli_launch.apply_codex_permission(self.UPSTREAM, "plan")
-        self.assertEqual(cmd[1:5], ["exec", "-s", "read-only", "-a"])
+        self.assertEqual(cmd[1:6], ["-a", "never", "exec", "-s", "read-only"])
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", cmd)
 
     def test_accept_edits_writes_inside_the_workspace_only(self):
@@ -246,3 +246,10 @@ class AntigravityTargetTests(unittest.TestCase):
         binary = fake_cli("Usage: antigravity [paths...] --goto --diff")
         with self.assertRaisesRegex(ValueError, "IDE"):
             cli_launch.build_headless_cmd(binary, "open youtube", flavor="agy")
+
+
+class ClaudeStreamingFlagsTest(unittest.TestCase):
+    def test_stream_json_requires_verbose(self):
+        binary = fake_cli(CLAUDE_LIKE_HELP)
+        cmd = cli_launch.build_headless_cmd(binary, PROMPT, flavor="claude", permission_mode="plan")
+        self.assertIn("--verbose", cmd)
