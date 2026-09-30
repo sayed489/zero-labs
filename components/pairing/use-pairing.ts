@@ -36,6 +36,10 @@ export type LaptopPlatform = 'windows' | 'unix'
 
 export type Pairing = {
   status: PairStatus
+  accountLoading: boolean
+  signedIn: boolean
+  anonymousAllowed: boolean
+  allowAnonymous(): void
   error: string
   code: string
   hostname: string
@@ -88,6 +92,8 @@ export function usePairing({
   const [copied, setCopied] = useState(false)
   const [platform, setPlatform] = useState<LaptopPlatform>('unix')
   const account = useAccount()
+  const [anonymousAllowed, setAnonymousAllowed] = useState(false)
+  const canPair = !account.loading && (Boolean(account.user) || anonymousAllowed)
   const onOnlineRef = useRef(onOnline)
   onOnlineRef.current = onOnline
   const cliRef = useRef(cli)
@@ -116,11 +122,12 @@ export function usePairing({
       return
     }
     clearForgeSession()
-    if (autoStart) void start()
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const start = useCallback(async () => {
+    if (!canPair) return
     setStatus('loading')
     setError('')
     try {
@@ -139,7 +146,11 @@ export function usePairing({
       setError(cause instanceof Error ? cause.message : 'Could not start pairing')
       void playError()
     }
-  }, [])
+  }, [canPair])
+
+  useEffect(() => {
+    if (autoStart && canPair && !session && status === 'idle') void start()
+  }, [autoStart, canPair, session, status, start])
 
   const reset = useCallback(async () => {
     const current = session
@@ -257,16 +268,20 @@ export function usePairing({
   const command = useMemo(() => buildCommand(platform, session?.code, cli), [platform, session?.code, cli])
 
   return {
+    accountLoading: account.loading,
+    signedIn: Boolean(account.user),
+    anonymousAllowed,
+    allowAnonymous: () => setAnonymousAllowed(true),
     status,
     error,
-    code: session?.code ?? '',
+    code: canPair ? session?.code ?? '' : '',
     hostname: session?.hostname ?? '',
     deviceId: session?.deviceId ?? '',
     session,
     platform,
     setPlatform,
     appOrigin: APP_ORIGIN,
-    command,
+    command: canPair ? command : '',
     privateOrigin: isPrivateHost(hostOf(APP_ORIGIN)),
     copied,
     start,
