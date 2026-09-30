@@ -6,6 +6,8 @@
  * status, and console action stay in the same order wherever this is rendered.
  */
 
+import Link from 'next/link'
+
 import { OsButton, OsPill } from '@/components/computer/os/os-ui'
 import type { Pairing } from '@/components/pairing/use-pairing'
 
@@ -69,7 +71,18 @@ export function PairPanel({
         </button>
       </div>
 
-      <div className="pair-command-block">
+      {pairing.accountLoading ? <p role="status">Checking sign-in…</p> : !pairing.signedIn ? (
+        <div className="pair-account-notice">
+          <p>Sign in first to save your paired laptop across browsers.</p>
+          <Link href="/sign-in">Sign in with email</Link>
+          <p>Anonymous pairing is saved only in this browser. It will not sync to your account or appear in another browser, and clearing browser data can lose access.</p>
+          {!pairing.anonymousAllowed ? (
+            <OsButton onClick={pairing.allowAnonymous}>Continue without signing in</OsButton>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!pairing.accountLoading && (pairing.signedIn || pairing.anonymousAllowed) ? <div className="pair-command-block">
         <span className="pair-kicker">Install command</span>
         <pre className="pair-command">
           {pairing.command || (pairing.status === 'loading' ? 'Creating your command…' : 'Generate a one-time command to pair a laptop.')}
@@ -90,6 +103,8 @@ export function PairPanel({
           </OsButton>
         </div>
       </div>
+
+      : null}
 
       <div className="pair-status" role="status">
         <OsPill tone={status.tone}>{status.label}</OsPill>

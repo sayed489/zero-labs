@@ -946,18 +946,23 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json_bytes(self._json_bytes(obj), status=status, close=close)
 
     def _send_json_bytes(self, body, status=200, close=False):
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self._cors_headers()
-        if close:
-            # Error paths may leave an unread request body; reusing the
-            # connection would desync HTTP keep-alive, so drop it.
-            self.send_header("Connection", "close")
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self._cors_headers()
+            if close:
+                # Error paths may leave an unread request body; reusing the
+                # connection would desync HTTP keep-alive, so drop it.
+                self.send_header("Connection", "close")
+                self.close_connection = True
+            self.end_headers()
+            self.wfile.write(body)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            # Polling clients may cancel during headers or body writes.
+            # Never attempt a second response on this dead connection.
             self.close_connection = True
-        self.end_headers()
-        self.wfile.write(body)
 
     def _error(self, status, message):
         try:

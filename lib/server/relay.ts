@@ -1,55 +1,12 @@
 import { PUBLISHED_APP_ORIGIN } from '@/lib/server/app-origin'
 import { allowedOrigins, proxySecret, relayUrl } from '@/lib/server/env'
 import { json } from '@/lib/server/http'
+import { hasTrustedOrigin } from '@/lib/server/origin-policy'
 
 const PHONE_SECRET_HEADER = 'x-forge-phone-secret'
 
-function originHost(value: string) {
-  try {
-    return new URL(value).hostname
-  } catch {
-    return ''
-  }
-}
-
-function trustedOrigins(request: Request) {
-  const requestUrl = new URL(request.url)
-  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
-  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'https'
-  const origins = new Set<string>([requestUrl.origin, PUBLISHED_APP_ORIGIN])
-  if (forwardedHost) origins.add(`${forwardedProto}://${forwardedHost}`)
-  for (const extra of allowedOrigins()) origins.add(extra)
-  return origins
-}
-
-function hostAllowed(hostname: string, root: string) {
-  return hostname === root || hostname.endsWith(`.${root}`)
-}
-
-function isTrustedPreviewHost(hostname: string) {
-  return (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname.endsWith('.localhost') ||
-    hostAllowed(hostname, 'v0.app') ||
-    hostAllowed(hostname, 'v0.build') ||
-    hostAllowed(hostname, 'v0.dev') ||
-    hostAllowed(hostname, 'vercel.run') ||
-    hostAllowed(hostname, 'vercel.app') ||
-    hostAllowed(hostname, 'vusercontent.net')
-  )
-}
-
 export function requireSameOrigin(request: Request) {
-  const origin = request.headers.get('origin')
-  if (!origin) {
-    const site = request.headers.get('sec-fetch-site')
-    if (!site || site === 'same-origin' || site === 'none') return null
-    return json({ error: 'Origin header required' }, 403)
-  }
-  if (trustedOrigins(request).has(origin)) return null
-  const host = originHost(origin)
-  if (host && isTrustedPreviewHost(host)) return null
+  if (hasTrustedOrigin(request, [PUBLISHED_APP_ORIGIN, ...allowedOrigins()])) return null
   return json({ error: 'Cross-origin request blocked' }, 403)
 }
 
@@ -87,7 +44,7 @@ export async function relayFetch(path: string, init: RequestInit = {}) {
       ...init,
       headers,
       cache: 'no-store',
-      signal: init.signal ?? AbortSignal.timeout(310_000),
+      signal: init.signal ?? AbortSignal.timeout(20_000),
     })
     return relayResponse(response)
   } catch {

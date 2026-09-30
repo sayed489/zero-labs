@@ -164,7 +164,7 @@ class CodexPermissionTest(unittest.TestCase):
 
     def test_plan_is_read_only(self):
         cmd = cli_launch.apply_codex_permission(self.UPSTREAM, "plan")
-        self.assertEqual(cmd[1:5], ["exec", "-s", "read-only", "-a"])
+        self.assertEqual(cmd[1:6], ["-a", "never", "exec", "-s", "read-only"])
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", cmd)
 
     def test_accept_edits_writes_inside_the_workspace_only(self):
@@ -233,3 +233,34 @@ class FlavorKeyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AntigravityTargetTests(unittest.TestCase):
+    def test_prompt_is_one_argument(self):
+        binary = fake_cli(CLAUDE_LIKE_HELP)
+        cmd = cli_launch.build_headless_cmd(binary, "open youtube", flavor="agy")
+        self.assertEqual(cmd[-1], "open youtube")
+        self.assertEqual(cmd.count("open youtube"), 1)
+
+    def test_ide_launcher_is_rejected(self):
+        binary = fake_cli("Usage: antigravity [paths...] --goto --diff")
+        with self.assertRaisesRegex(ValueError, "IDE"):
+            cli_launch.build_headless_cmd(binary, "open youtube", flavor="agy")
+
+
+class ClaudeStreamingFlagsTest(unittest.TestCase):
+    def test_stream_json_requires_verbose(self):
+        binary = fake_cli(CLAUDE_LIKE_HELP)
+        cmd = cli_launch.build_headless_cmd(binary, PROMPT, flavor="claude", permission_mode="plan")
+        self.assertIn("--verbose", cmd)
+
+
+class HelpLauncherTest(unittest.TestCase):
+    def test_help_uses_same_shim_launcher_as_jobs(self):
+        from unittest.mock import Mock, patch
+        wrapped = ['cmd.exe', '/c', 'agy.cmd --help']
+        with patch.object(cli_launch, 'prepare_popen', return_value=(wrapped, {})) as prepare, \
+             patch.object(cli_launch.subprocess, 'run', return_value=Mock(stdout='--goto --diff', stderr='')) as run:
+            self.assertEqual(cli_launch._help_text('agy.cmd'), '--goto --diff\n')
+            self.assertEqual(prepare.call_args.args[0], ['agy.cmd', '--help'])
+            run.assert_called_once_with(wrapped)

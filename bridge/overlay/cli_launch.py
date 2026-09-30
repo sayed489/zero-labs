@@ -144,6 +144,7 @@ def _which(name, env=None):
         try:
             output = subprocess.check_output(
                 ["where", name],
+                stderr=subprocess.DEVNULL,
                 env=env,
                 text=True,
                 errors="ignore",
@@ -161,7 +162,7 @@ def refresh_cli_bins(config):
     if config is None:
         return
     mapping = (
-        ("agy_bin", ("agy", "antigravity")),
+        ("agy_bin", ("agy",)),
         ("claude_bin", ("claude",)),
         ("cursor_bin", ("agent", "cursor-agent")),
         ("codex_bin", ("codex",)),
@@ -200,8 +201,8 @@ def resolve_bin(name, env=None):
         "agent": ["agent", "cursor-agent"],
         "cursor-agent": ["agent", "cursor-agent"],
         "cursor": ["agent", "cursor-agent"],
-        "agy": ["agy", "antigravity"],
-        "antigravity": ["agy", "antigravity"],
+        "agy": ["agy"],
+        "antigravity": ["agy"],
         "opencode": ["opencode"],
         "copilot": ["copilot"],
         "github": ["copilot"],
@@ -291,7 +292,10 @@ def _help_text(path):
     if os.name == "nt":
         kwargs["creationflags"] = CREATE_NO_WINDOW
     try:
-        proc = subprocess.run(**kwargs)
+        # Probe through the same Windows npm/.cmd launcher used for jobs.
+        # Direct CreateProcess on a batch shim can fail, hiding IDE detection.
+        command, kwargs = prepare_popen(kwargs.pop("args"), kwargs)
+        proc = subprocess.run(command, **kwargs)
         return (proc.stdout or "") + "\n" + (proc.stderr or "")
     except Exception:
         return ""
@@ -317,6 +321,7 @@ def detect_cli_flags(exec_path):
         model_flag = ""
     flags = {
         "help": bool(help_text.strip()),
+        "ide_launcher": "--goto" in lower and "--diff" in lower,
         "print_flag": print_flag,
         "model_flag": model_flag,
         "output_format": "--output-format" in lower,
@@ -448,6 +453,8 @@ def build_headless_cmd(binary, prompt, session_id="", permission_mode="", flavor
     if flavor == "copilot":
         return _build_copilot_cmd(binary, prompt, model, permission_mode)
     flags = detect_cli_flags(binary)
+    if flavor == "agy" and flags.get("ide_launcher"):
+        raise ValueError("This executable opens the Antigravity IDE, not agent tasks. Install the agy CLI and pair again.")
     defaults = _FLAVOR_DEFAULTS.get(flavor) or {}
     cmd = [binary]
 
@@ -465,6 +472,8 @@ def build_headless_cmd(binary, prompt, session_id="", permission_mode="", flavor
 
     if _use_flag(flags, "output_format", flavor) or _use_flag(flags, "stream_json", flavor):
         cmd.extend(["--output-format", "stream-json"])
+        if flavor == "claude":
+            cmd.append("--verbose")
     if _use_flag(flags, "stream_partial", flavor):
         cmd.append("--stream-partial-output")
 
@@ -562,6 +571,12 @@ def apply_codex_permission(cmd, mode):
         out.append(token)
 
     replacement = codex_sandbox_argv(mode)
+    # Approval is a root option, not an exec option in current Codex.
+    if "-a" in replacement:
+        approval = replacement.index("-a")
+        root_flags = replacement[approval:approval + 2]
+        del replacement[approval:approval + 2]
+        out[1:1] = root_flags
     if not replacement:
         return out
     try:
@@ -688,7 +703,7 @@ def handle_stream_line(job, line):
 
     if kind in ("assistant", "message", "text", "content", "text_delta"):
         streamed = bool((getattr(job, "runner_state", None) or {}).get("streamed_text"))
-        partial = obj.get("timestamp_ms") is not None or kind == "text_delta"
+        partial = obj.get("timestamp_ms") is not None or kind in ("text", "text_delta")
         extracted = _assistant_text(obj)
         if extracted and (partial or not streamed):
             _emit_text(job, extracted)
@@ -796,8 +811,12 @@ def finalize_job(job, returncode, stderr_tail):
     has_output = bool(getattr(job, "result_text", "")) or any(
         event.get("kind") in ("text", "result") and event.get("text") for event in events
     )
-    if returncode not in (0, None) and tail and not has_output:
-        job.add_event("error", text=tail[:2000])
+    if returncode not in (0, None):
+        # Partial output is not success: providers can fail after streaming text.
+        if tail:
+            job.add_event("error", text=tail[:2000])
+        return False
+    if any(event.get("kind") == "error" for event in events):
         return False
     if has_output:
         return True

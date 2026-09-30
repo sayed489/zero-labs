@@ -955,6 +955,17 @@ export function buildCliCommand(build: PromptBuild): BuiltCommand {
   const cdInto = build.cwd && !cwdPieces.length ? build.cwd : ''
   if (cdInto) explain.push(`cd ${cdInto}  →  work inside ${cdInto}`)
 
+  // Codex root-only options must precede `exec`, not follow it.
+  if (profile.id === 'codex') {
+    const rootFlags: string[] = []
+    for (let index = profile.head.length; index < argv.length;) {
+      if (argv[index] === '--ask-for-approval') rootFlags.push(...argv.splice(index, 2))
+      else if (argv[index] === '--search') rootFlags.push(...argv.splice(index, 1))
+      else index += 1
+    }
+    argv.splice(1, 0, ...rootFlags)
+  }
+
   if (profile.promptFlag) argv.push(profile.promptFlag, prompt)
   else argv.push(prompt)
 

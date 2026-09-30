@@ -441,3 +441,12 @@ test('the shell and powershell forms are built from the same argv', () => {
   assert.equal(built.powershell, built.argv.map(quotePowerShell).join(' '));
   assert.ok(built.shell.includes("'/my repo'"), 'a path with a space is quoted');
 });
+
+test('Codex root options precede exec, including research search and approval', () => {
+  const flags = defaultFlagState(cliProfile('codex'));
+  flags.selects['ask-for-approval'] = 'never';
+  const { argv } = buildCliCommand({ cli: 'codex', prompt: 'Reply OK', flags, deepResearch: true });
+  assert.ok(argv.indexOf('--ask-for-approval') < argv.indexOf('exec'));
+  assert.ok(argv.indexOf('--search') < argv.indexOf('exec'));
+  assert.equal(argv.at(-1).includes('Reply OK'), true);
+});

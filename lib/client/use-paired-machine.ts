@@ -82,7 +82,8 @@ export function usePairedMachine({
     if (existing?.deviceId && existing.phoneSecret) {
       setSession(existing)
       setHostname(existing.hostname || '')
-      setOnline(Boolean(existing.daemonOnline))
+      // Stored presence is stale until the relay confirms this connection.
+      setOnline(false)
       setReady(true)
       return
     }
@@ -153,12 +154,11 @@ export function usePairedMachine({
           setHostname(data.device.name)
           writeForgeSession({ ...session!, hostname: data.device.name, daemonOnline: nextDaemon })
         }
-        if (nextOnline && !wasOnline) {
-          wasOnline = true
-          callbacks.current.onConnected?.(session!)
-        }
+        if (nextOnline && !wasOnline) callbacks.current.onConnected?.(session!)
+        wasOnline = nextOnline
       },
       onError: () => {
+        wasOnline = false
         setOnline(false)
         setDaemonOnline(false)
       },
@@ -182,6 +182,13 @@ export function usePairedMachine({
       if (stored.hostname) setHostname(stored.hostname)
       setReady(true)
     }
+    else {
+      setSession(null)
+      setOnline(false)
+      setDaemonOnline(false)
+      setHostname('')
+      setReady(true)
+    }
     // If the session changed, the presence effect re-runs and its first tick is
     // immediate; ticking the old handle in the meantime is harmless.
     pollRef.current?.tick()
@@ -198,20 +205,12 @@ export function usePairedMachine({
   }, [refresh])
 
   const forget = useCallback(() => {
-    const current = session
-    if (current?.deviceId && current.phoneSecret) {
-      void fetch(`/api/devices/${encodeURIComponent(current.deviceId)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${current.phoneSecret}` },
-        cache: 'no-store',
-      }).catch(() => undefined)
-    }
     clearForgeSession()
     setSession(null)
     setOnline(false)
     setDaemonOnline(false)
     setHostname('')
-  }, [session])
+  }, [])
 
   return {
     ready,

@@ -28,6 +28,7 @@ async function handler(request: Request, { params }: Context) {
 
   return relayFetch(`/v1/devices/${encodeURIComponent(deviceId)}/rpc`, {
     method: 'POST',
+    signal: AbortSignal.any([request.signal, AbortSignal.timeout(290_000)]),
     headers: relayHeaders,
     body: JSON.stringify({ method: request.method, path: rpcPath, headers, bodyBase64: body }),
   })

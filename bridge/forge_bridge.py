@@ -23,6 +23,7 @@ import base64
 import http.client
 import json
 import os
+import random
 import socket
 import ssl
 import sys
@@ -82,6 +83,8 @@ CONNECT_TIMEOUT_S = 3
 READ_TIMEOUT_S = 300
 HEARTBEAT_S = 15
 CHANNEL_TIMEOUT_S = 20
+STABLE_CONNECTION_S = 15
+READY_PATH = FORGE_HOME / "bridge-ready.json"
 # Single-instance lock. One bridge per machine in real life; tests override
 # FORGE_LOCK_PORT so a test bridge can run beside a developer's own.
 LOCK_PORT = int(os.environ.get("FORGE_LOCK_PORT") or 18473)
@@ -364,11 +367,12 @@ class Bridge:
 
     def on_open(self, ws) -> None:
         self.socket = ws
-        self.stop.clear()
+        self.stop = threading.Event()
+        self.connected_monotonic = time.monotonic()
         self.connected_since = time.time()
         print("Forge bridge connected (protocol v%d)" % PROTOCOL_VERSION, flush=True)
         self.send_heartbeat()
-        threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+        threading.Thread(target=self.heartbeat_loop, args=(ws, self.stop), daemon=True).start()
 
     def on_message(self, _ws, raw) -> None:
         if isinstance(raw, (bytes, bytearray)):
@@ -400,6 +404,9 @@ class Bridge:
             self.send_text({"type": "term_list_result", "sessions": self.pty.list()})
             return
         if kind == "heartbeat_ack":
+            if time.monotonic() - self.connected_monotonic >= STABLE_CONNECTION_S:
+                READY_PATH.write_text(json.dumps({"pid": os.getpid(), "deviceId": self.device_id,
+                                                  "ackAt": time.time()}), encoding="utf-8")
             return
         if kind == "revoke_client":
             self.clients.revoke(str(message.get("clientId") or ""))
@@ -410,6 +417,7 @@ class Bridge:
 
     def on_close(self, _ws, code, reason) -> None:
         self.stop.set()
+        READY_PATH.unlink(missing_ok=True)
         self.socket = None
         print("Forge bridge disconnected (%s %s)" % (code or "", reason or ""), flush=True)
 
@@ -430,28 +438,49 @@ class Bridge:
             }
         )
 
-    def heartbeat_loop(self) -> None:
-        while not self.stop.wait(HEARTBEAT_S):
-            self.send_heartbeat()
+    def heartbeat_loop(self, ws, stop) -> None:
+        while not stop.wait(HEARTBEAT_S):
+            try:
+                if self.socket is not ws:
+                    return
+                self.send_heartbeat()
+            except (OSError, websocket.WebSocketException) as error:
+                self.on_error(ws, error)
+                ws.close()
+                return
 
     def run(self) -> None:
         delay = 1
         url = websocket_url(self.config)
+        READY_PATH.unlink(missing_ok=True)
         while True:
+            self.connected_monotonic = None
             app = websocket.WebSocketApp(
-                url,
-                on_open=self.on_open,
-                on_message=self.on_message,
-                on_error=self.on_error,
-                on_close=self.on_close,
+                url, on_open=self.on_open, on_message=self.on_message,
+                on_error=self.on_error, on_close=self.on_close,
             )
-            app.run_forever(
-                ping_interval=25, ping_timeout=10, sslopt={"cert_reqs": ssl.CERT_REQUIRED}
-            )
-            if self.stop.is_set() and os.environ.get("FORGE_ONCE"):
+            try:
+                # TLS EOF, DNS failures and resets are transient transport errors.
+                # Recreate the socket; never disable certificate verification.
+                app.run_forever(
+                    ping_interval=25, ping_timeout=10,
+                    sslopt={"cert_reqs": ssl.CERT_REQUIRED},
+                )
+            except (OSError, websocket.WebSocketException) as error:
+                self.on_error(app, error)
+            finally:
+                self.stop.set()
+                self.socket = None
+                READY_PATH.unlink(missing_ok=True)
+                app.close()
+            if os.environ.get("FORGE_ONCE"):
                 return
-            time.sleep(delay)
-            delay = min(delay * 2, 30)
+            if self.connected_monotonic is not None and time.monotonic() - self.connected_monotonic >= 60:
+                delay = 1
+            wait = random.uniform(delay * 0.8, delay)
+            print("Forge reconnecting in %.1fs" % wait, flush=True)
+            time.sleep(wait)
+            delay = min(delay * 2, 60)
 
     # -- encryption --------------------------------------------------------
     def establish_channel(self, message: dict):
@@ -586,7 +615,7 @@ class Bridge:
                 cols=cols,
                 rows=rows,
                 cwd=cwd,
-                shell=message.get("shell"),
+                shell=message.get("shell") or self.config.get("cliCommand"),
             )
         except (PtyUnavailable, OSError) as error:
             self.send_text(
@@ -951,7 +980,12 @@ def acquire_single_instance():
     while True:
         lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            lock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if os.name == "nt":
+                # SO_REUSEADDR on Windows permits another bridge to steal the
+                # lock port, causing both sockets to replace each other at relay.
+                lock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                lock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             lock.bind(("127.0.0.1", LOCK_PORT))
             lock.listen(1)
             return lock

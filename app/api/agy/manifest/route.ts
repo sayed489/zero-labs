@@ -38,6 +38,7 @@ export async function GET(request: Request) {
     const response = await fetch(`${UPDATER}/manifests/${platform}.json`, {
       headers: { 'User-Agent': 'forge-installer/1.0' },
       cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
     })
     if (response.ok) {
       const data = await response.json()

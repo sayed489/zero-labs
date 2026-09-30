@@ -9,6 +9,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 env:
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   VERCEL_ORG_ID: team_t39JYqpo4czN7MTpfesK5bWt
@@ -50,10 +54,11 @@ jobs:
 
       - name: Comment preview URL on PR
         if: github.event_name == 'pull_request'
+        continue-on-error: true # A comment failure must not misreport a successful deployment.
         uses: actions/github-script@v7
         with:
           script: |
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,

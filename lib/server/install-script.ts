@@ -58,6 +58,8 @@ export function pythonInstallScript(origin: string) {
 from __future__ import annotations
 
 import hashlib
+import io
+import tarfile
 import json
 import os
 import platform
@@ -264,6 +266,11 @@ def install_daemon():
         run(["git", "clone", "--filter=blob:none", DAEMON_REPOSITORY, str(AGENT_HOME)])
     run(["git", "-C", str(AGENT_HOME), "fetch", "--depth", "1", "origin", DAEMON_COMMIT])
     run(["git", "-C", str(AGENT_HOME), "checkout", "--detach", DAEMON_COMMIT])
+    # Reinstalling the same commit preserves modified tracked files by default.
+    # Reset only installer-owned overlay targets before applying current patches.
+    run(["git", "-C", str(AGENT_HOME), "restore", "--source", DAEMON_COMMIT, "--worktree", "--",
+         "daemon/agentremoted/jobs.py", "daemon/agentremoted/providers/__init__.py", "daemon/agentremoted/server.py"])
+
 
 
 def which_cli(name):
@@ -272,7 +279,7 @@ def which_cli(name):
         return found
     if os.name == "nt":
         try:
-            output = subprocess.check_output(["where", name], text=True, errors="ignore", timeout=10)
+            output = subprocess.check_output(["where", name], stderr=subprocess.DEVNULL, text=True, errors="ignore", timeout=10)
             line = output.strip().splitlines()[0].strip() if output.strip() else ""
             if line and Path(line).exists():
                 return line
@@ -385,8 +392,32 @@ def agy_binary_path():
     return Path.home() / ".local" / "bin" / "agy"
 
 
+def install_agy_payload(binary, payload, url):
+    # Linux/macOS manifests can point to tar.gz archives, not flat binaries.
+    # Read only the executable member; never extract archive paths or links.
+    if urllib.parse.urlsplit(url).path.endswith(".tar.gz"):
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            candidates = [member for member in archive.getmembers()
+                          if member.name in ("antigravity", "agy", "./antigravity", "./agy") and member.isfile()]
+            if len(candidates) != 1 or not 0 < candidates[0].size <= 512 * 1024 * 1024:
+                raise RuntimeError("Antigravity archive has no unique valid executable")
+            with archive.extractfile(candidates[0]) as source:
+                payload = source.read()
+    if not payload:
+        raise RuntimeError("Antigravity download is empty")
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    staging = binary.with_name(binary.name + ".download")
+    try:
+        staging.write_bytes(payload)
+        if os.name != "nt":
+            staging.chmod(0o755)
+        os.replace(staging, binary)
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 def install_antigravity():
-    existing = which_cli("agy") or which_cli("antigravity")
+    existing = which_cli("agy")
     if existing:
         return existing
     binary = agy_binary_path()
@@ -397,7 +428,7 @@ def install_antigravity():
     if os.name != "nt":
         try:
             completed = subprocess.run(
-                ["bash", "-lc", "curl -fsSL https://antigravity.google/cli/install.sh | bash"],
+                ["bash", "-o", "pipefail", "-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"],
                 timeout=180,
             )
             found = which_cli("agy")
@@ -413,14 +444,11 @@ def install_antigravity():
             raise RuntimeError("manifest missing url")
         print("Downloading Antigravity " + str(manifest.get("version") or "") + " from Google storage...")
         payload = fetch_bytes(url, timeout=180)
-        if sha:
-            digest = hashlib.sha512(payload).hexdigest()
-            if digest.lower() != sha.lower():
-                raise RuntimeError("Antigravity checksum mismatch")
-        binary.parent.mkdir(parents=True, exist_ok=True)
-        binary.write_bytes(payload)
-        if os.name != "nt":
-            binary.chmod(0o755)
+        if len(sha) != 128 or any(ch not in "0123456789abcdefABCDEF" for ch in sha):
+            raise RuntimeError("manifest missing valid SHA512 checksum")
+        if hashlib.sha512(payload).hexdigest().lower() != sha.lower():
+            raise RuntimeError("Antigravity checksum mismatch")
+        install_agy_payload(binary, payload, url)
         try:
             subprocess.run([str(binary), "install"], timeout=60, check=False)
         except Exception:
@@ -464,10 +492,11 @@ def install_claude():
     return which_cli("claude")
 
 
-def prepare_cli():
+def prepare_cli(preferred=""):
+    preferred = {"agy": "antigravity", "agent": "cursor", "cursor-agent": "cursor", "claude-code": "claude", "openai": "codex", "open-code": "opencode", "github": "copilot", "gh": "copilot", "github-copilot": "copilot"}.get(preferred, preferred)
     found = {}
     specs = (
-        ("antigravity", ("agy", "antigravity")),
+        ("antigravity", ("agy",)),
         ("claude", ("claude",)),
         ("cursor", ("agent", "cursor-agent")),
         ("codex", ("codex",)),
@@ -475,23 +504,32 @@ def prepare_cli():
         ("copilot", ("copilot",)),
         ("grok", ("grok",)),
     )
+    if preferred and preferred not in dict(specs):
+        fail("Unknown selected CLI: " + preferred)
     for name, aliases in specs:
+        if preferred and name != preferred:
+            continue
         for alias in aliases:
             path = which_cli(alias)
             if path:
                 found[name] = path
                 print("Found " + name + " CLI: " + path)
                 break
-    if "antigravity" not in found:
+    if preferred in ("", "antigravity") and "antigravity" not in found:
         installed = install_antigravity()
         if installed:
             found["antigravity"] = installed
             print("Using Antigravity CLI: " + installed)
-    if "antigravity" not in found and "claude" not in found:
+    if preferred in ("", "claude") and "antigravity" not in found and "claude" not in found:
         installed = install_claude()
         if installed:
             found["claude"] = installed
             print("Installed Claude Code CLI: " + installed)
+    if preferred:
+        if preferred not in found:
+            fail("Selected CLI " + preferred + " was not found. Install it and rerun; Forge will not substitute another agent.")
+        print("Using selected CLI: " + preferred)
+        return found
     if not found:
         print("No coding CLI is available yet. Forge will still connect.")
         print("Install Antigravity (agy) or Claude Code, then log in.")
@@ -553,6 +591,8 @@ def overlay_daemon():
             "                store.titler = titler\\n"
             "            return store, runner\\n"
             "    except Exception:\\n"
+            "        if name == 'codex':\\n"
+            "            raise\\n"
             "        pass"
         )
         if needle in init_text:
@@ -576,6 +616,16 @@ def overlay_daemon():
         fail("could not patch daemon providers")
     server = daemon / "server.py"
     server_text = server.read_text(encoding="utf-8")
+    # The installer clones upstream, so apply the disconnect fix there too.
+    start = server_text.index("    def _send_json_bytes(")
+    end = server_text.index("    def _error(", start)
+    writer = server_text[start:end]
+    if "except (ConnectionAbortedError" not in writer:
+        body_start = writer.index("        self.send_response(status)")
+        body = writer[body_start:].rstrip()
+        writer = writer[:body_start] + "        try:\\n" + "\\n".join("    " + line for line in body.splitlines()) + "\\n        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):\\n            self.close_connection = True\\n\\n"
+        server_text = server_text[:start] + writer + server_text[end:]
+    server.write_text(server_text, encoding="utf-8")
     ping_old = "        if path == \\"/api/ping\\":"
     ping_new = (
         "        if path == \\"/api/ping\\":\\n"
@@ -690,6 +740,20 @@ def daemon_env():
     return env
 
 
+def wait_bridge_ready(timeout=90):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            ready = json.loads((FORGE_HOME / "bridge-ready.json").read_text(encoding="utf-8"))
+            config = json.loads((FORGE_HOME / "config.json").read_text(encoding="utf-8"))
+            if ready.get("deviceId") == config.get("deviceId") and 0 <= time.time() - ready["ackAt"] < 20:
+                return True
+        except (OSError, ValueError, KeyError):
+            pass
+        time.sleep(0.5)
+    return False
+
+
 def start_processes(python_executable):
     spawn_detached(
         [python_executable, "-m", "agentremoted", "--bind", "127.0.0.1", "--port", str(DAEMON_PORT)],
@@ -798,6 +862,7 @@ def main():
     preferred = sys.argv[2].strip().lower() if len(sys.argv) > 2 else ""
     FORGE_HOME.mkdir(parents=True, exist_ok=True)
     kill_old_forge()
+    (FORGE_HOME / "bridge-ready.json").unlink(missing_ok=True)
     print("Installing isolated Python environment...")
     if not VENV_HOME.exists():
         run([sys.executable, "-m", "venv", str(VENV_HOME)])
@@ -808,7 +873,7 @@ def main():
     run([python, "-m", "pip", "install", "--disable-pip-version-check", "--quiet"] + packages)
     fetch_bridge()
     print("Looking for the coding CLI on this laptop...")
-    found = prepare_cli()
+    found = prepare_cli(preferred)
     print("Installing pinned local daemon...")
     install_daemon()
     print("Wiring Claude, Codex, Cursor, OpenCode, and Copilot launchers...")
@@ -825,6 +890,8 @@ def main():
         "deviceToken": token,
         "workerWebSocketUrl": ws_url,
         "daemonUrl": "http://127.0.0.1:" + str(DAEMON_PORT),
+        "preferredCli": next(iter(found), ""),
+        "cliCommand": [next(iter(found.values()))] if found else None,
     }
     (FORGE_HOME / "config.json").write_text(json.dumps(config, indent=2) + "\\n", encoding="utf-8")
     if os.name == "nt":
@@ -836,6 +903,8 @@ def main():
             start_processes(python)
         elif not wait_port(BRIDGE_LOCK_PORT, 25):
             start_processes(python)
+    if not wait_bridge_ready():
+        fail("bridge is installed but the relay connection is not stable yet. It will keep retrying; see " + str(FORGE_HOME / "bridge.log"))
     print("Forge is installed and connected. You can close this window.")
     if "antigravity" in found:
         print("Next: open a new Command Prompt and run: agy")
