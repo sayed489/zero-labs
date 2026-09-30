@@ -69,12 +69,6 @@ class PairError extends Error {
   }
 }
 
-function isExpired(session: ForgeSession) {
-  if (!session.expiresAt) return false
-  const expiresAt = Date.parse(session.expiresAt)
-  return Number.isFinite(expiresAt) && expiresAt <= Date.now()
-}
-
 export function usePairing({
   cli = 'claude',
   autoStart = false,
@@ -116,7 +110,7 @@ export function usePairing({
   useEffect(() => {
     setPlatform(/Windows/i.test(navigator.userAgent) ? 'windows' : 'unix')
     const existing = readForgeSession()
-    if (existing?.code && existing.phoneSecret && !isExpired(existing)) {
+    if (existing) {
       setSession(existing)
       setStatus(existing.deviceId ? 'claimed' : 'waiting')
       return
@@ -168,7 +162,7 @@ export function usePairing({
 
   // -- polite presence polling -------------------------------------------------
   useEffect(() => {
-    if (!session?.code || !session.phoneSecret) return
+    if (!(session?.deviceId || session?.code) || !session.phoneSecret) return
     let finished = false
     let stopPolling = () => {}
 
