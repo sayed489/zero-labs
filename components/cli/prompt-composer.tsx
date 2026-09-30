@@ -20,7 +20,7 @@
  * unless a machine is paired.
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { ConsoleTranscript } from '@/components/agent/console-transcript'
 import { useAgentConsole, type AgentConsole } from '@/components/agent/use-agent-console'
@@ -69,7 +69,10 @@ export function PromptComposer({
   const [cwd, setCwd] = useState('')
   const [showFlags, setShowFlags] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [submittedCommand, setSubmittedCommand] = useState<ReturnType<typeof commandForPrompt> | null>(null)
+  const [requesting, setRequesting] = useState(false)
   const [notice, setNotice] = useState('')
+  const submitLock = useRef(false)
 
   const canDispatch = paired.hasSession && paired.online && paired.daemonOnline
   const permissionMode = permissionModeFor({
@@ -79,15 +82,17 @@ export function PromptComposer({
   })
 
   // The preview always shows the real argv — with your text once you have typed any.
+  const workingDir = cwd.trim() || box.cwd
   const preview = useMemo(
-    () => commandForPrompt(selection, text.trim() || '<your prompt>', cwd.trim()),
+    () => commandForPrompt(selection, text.trim() || '<your prompt>', workingDir),
     // selection.command already tracks every field that feeds the build.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selection.command, text, cwd],
+    [selection.command, text, cwd, workingDir],
   )
 
-  function send() {
-    if (!text.trim()) {
+  async function send() {
+    const prompt = text.trim()
+    if (!prompt) {
       setNotice('Type what you want the agent to do first.')
       return
     }
@@ -101,17 +106,38 @@ export function PromptComposer({
       onNeedMachine()
       return
     }
+    if (submitLock.current || box.working) {
+      setNotice('A prompt is already running. Wait for it to finish or stop it first.')
+      return
+    }
+
+    const command = commandForPrompt(selection, prompt, workingDir)
+    submitLock.current = true
+    setRequesting(true)
     setNotice('')
-    setSubmitted(true)
-    void box.sendPrompt({
-      text: preview.prompt,
-      cwd: cwd.trim() || box.cwd,
-      permissionMode,
-      provider: selection.cli,
-      // The same model the preview shows in the command line.
-      model: selection.model,
-    })
-    setText('')
+    setSubmitted(false)
+    setSubmittedCommand(null)
+    try {
+      const accepted = await box.sendPrompt({
+        text: command.prompt,
+        cwd: workingDir,
+        permissionMode,
+        provider: selection.cli,
+        // The same model the preview shows in the command line.
+        model: selection.model,
+      })
+      if (!accepted) return
+      setSubmittedCommand(command)
+      setSubmitted(true)
+      setText('')
+    } catch {
+      // sendPrompt normally reports failures through box.error; keep the input
+      // intact if a future transport implementation rejects instead.
+      setNotice('Could not send the prompt to the laptop. Your text is still here; try again.')
+    } finally {
+      submitLock.current = false
+      setRequesting(false)
+    }
   }
 
   return (
@@ -150,17 +176,30 @@ export function PromptComposer({
         rows={compact ? 4 : 5}
         value={text}
         placeholder={`Tell ${selection.profile.name} what to do…  e.g. “Fix the failing test in lib/shared and explain why it broke.”`}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          setText(event.target.value)
+          setSubmitted(false)
+          setSubmittedCommand(null)
+        }}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
           event.preventDefault()
-          send()
+          void send()
         }}
       />
 
       <div className="prompt-chips" aria-label="Example prompts">
         {EXAMPLES.map((example) => (
-          <button type="button" key={example} className="prompt-chip" onClick={() => setText(example)}>
+          <button
+            type="button"
+            key={example}
+            className="prompt-chip"
+            onClick={() => {
+              setText(example)
+              setSubmitted(false)
+              setSubmittedCommand(null)
+            }}
+          >
             {example}
           </button>
         ))}
@@ -174,12 +213,22 @@ export function PromptComposer({
           onChange={(event) => setCwd(event.target.value)}
           spellCheck={false}
         />
-        <OsButton variant="primary" onClick={send} disabled={box.working}>
-          {box.working ? 'Working…' : `Send to ${selection.profile.name}`}
+        <OsButton variant="primary" onClick={() => void send()} disabled={box.working || requesting}>
+          {requesting ? 'Sending…' : box.working ? 'Working…' : `Send to ${selection.profile.name}`}
         </OsButton>
-        {box.working ? <OsButton onClick={() => void box.stopJob()}>Stop</OsButton> : null}
+        {box.working && !requesting ? <OsButton onClick={() => void box.stopJob()}>Stop</OsButton> : null}
         <OsButton onClick={() => setShowFlags((open) => !open)}>{showFlags ? 'Hide flags' : 'Flags…'}</OsButton>
       </div>
+
+      {submittedCommand ? (
+        <div className="cli-command" role="status" aria-live="polite">
+          <div className="cli-command-head">
+            <span className="cli-field-label">{box.working ? 'Running command' : 'Command sent'}</span>
+            <OsPill tone={box.working ? 'warn' : 'good'}>{box.working ? 'running' : 'started'}</OsPill>
+          </div>
+          <pre className="cli-command-body">{submittedCommand.shell}</pre>
+        </div>
+      ) : null}
 
       <p className="prompt-summary">
         <OsPill
@@ -215,7 +264,9 @@ export function PromptComposer({
         />
       ) : null}
 
-      {!compact ? <CommandPreview command={preview} title={`What ${selection.profile.name} runs`} /> : null}
+      {!compact && !submittedCommand ? (
+        <CommandPreview command={preview} title={`What ${selection.profile.name} runs`} />
+      ) : null}
 
       {notice ? <p className="prompt-notice">{notice}</p> : null}
       {box.error ? <p className="prompt-notice prompt-notice-bad">{box.error}</p> : null}
