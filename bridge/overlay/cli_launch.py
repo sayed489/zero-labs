@@ -144,6 +144,7 @@ def _which(name, env=None):
         try:
             output = subprocess.check_output(
                 ["where", name],
+                stderr=subprocess.DEVNULL,
                 env=env,
                 text=True,
                 errors="ignore",

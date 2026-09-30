@@ -272,7 +272,7 @@ def which_cli(name):
         return found
     if os.name == "nt":
         try:
-            output = subprocess.check_output(["where", name], text=True, errors="ignore", timeout=10)
+            output = subprocess.check_output(["where", name], stderr=subprocess.DEVNULL, text=True, errors="ignore", timeout=10)
             line = output.strip().splitlines()[0].strip() if output.strip() else ""
             if line and Path(line).exists():
                 return line
