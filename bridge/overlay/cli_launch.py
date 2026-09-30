@@ -700,7 +700,7 @@ def handle_stream_line(job, line):
 
     if kind in ("assistant", "message", "text", "content", "text_delta"):
         streamed = bool((getattr(job, "runner_state", None) or {}).get("streamed_text"))
-        partial = obj.get("timestamp_ms") is not None or kind == "text_delta"
+        partial = obj.get("timestamp_ms") is not None or kind in ("text", "text_delta")
         extracted = _assistant_text(obj)
         if extracted and (partial or not streamed):
             _emit_text(job, extracted)
@@ -808,8 +808,12 @@ def finalize_job(job, returncode, stderr_tail):
     has_output = bool(getattr(job, "result_text", "")) or any(
         event.get("kind") in ("text", "result") and event.get("text") for event in events
     )
-    if returncode not in (0, None) and tail and not has_output:
-        job.add_event("error", text=tail[:2000])
+    if returncode not in (0, None):
+        # Partial output is not success: providers can fail after streaming text.
+        if tail:
+            job.add_event("error", text=tail[:2000])
+        return False
+    if any(event.get("kind") == "error" for event in events):
         return False
     if has_output:
         return True
