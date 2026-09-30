@@ -586,6 +586,8 @@ def overlay_daemon():
             "                store.titler = titler\\n"
             "            return store, runner\\n"
             "    except Exception:\\n"
+            "        if name == 'codex':\\n"
+            "            raise\\n"
             "        pass"
         )
         if needle in init_text:

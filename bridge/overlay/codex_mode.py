@@ -9,8 +9,8 @@ to reflect it.
 
 This is an overlay, not a fork: it subclasses the upstream runner and rewrites
 the argv `prepare()` already built (cli_launch.apply_codex_permission). If
-anything here fails to import, providers/forge_hook.py falls back to the
-upstream codex provider and codex keeps working exactly as before.
+this enforcement layer cannot load, initialization must fail rather than
+fall back to the upstream full-access provider.
 """
 
 from ..cli_launch import apply_codex_permission

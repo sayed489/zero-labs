@@ -57,9 +57,23 @@ class InstallerTests(unittest.TestCase):
             shutil.copytree(ROOT / 'vendor/agent-remote/daemon', home / 'daemon')
             server = home / 'daemon/agentremoted/server.py'
             # Use the original, unpatched response writer to exercise installation.
-            original = subprocess.check_output([
-                'git', 'show', 'd1b9a779525e7479769bfc7516d332affbbc6375:vendor/agent-remote/daemon/agentremoted/server.py',
-            ], cwd=ROOT, text=True)
+            original = server.read_text()
+            start = original.index('    def _send_json_bytes(')
+            end = original.index('    def _error(', start)
+            unpatched = """    def _send_json_bytes(self, body, status=200, close=False):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self._cors_headers()
+        if close:
+            self.send_header("Connection", "close")
+            self.close_connection = True
+        self.end_headers()
+        self.wfile.write(body)
+
+"""
+            original = original[:start] + unpatched + original[end:]
             server.write_text(original)
             with patch.dict(self.ns, AGENT_HOME=home, download=Mock()):
                 self.ns['overlay_daemon']()
@@ -67,6 +81,9 @@ class InstallerTests(unittest.TestCase):
                 self.ns['overlay_daemon']()
                 self.assertEqual(server.read_text(), first)
             ast.parse(first)
+            providers = home / "daemon/agentremoted/providers/__init__.py"
+            ast.parse(providers.read_text())
+            self.assertIn("if name == 'codex':", providers.read_text())
             self.assertIn('except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)', first)
             self.assertIn('refresh_cli_bins', first)
 
