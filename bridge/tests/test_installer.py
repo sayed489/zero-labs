@@ -1,6 +1,8 @@
 """Test the Python actually served by the TypeScript installer generator."""
 import ast
 import json
+import io
+import tarfile
 import shutil
 from pathlib import Path
 import subprocess
@@ -67,3 +69,28 @@ class InstallerTests(unittest.TestCase):
             ast.parse(first)
             self.assertIn('except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)', first)
             self.assertIn('refresh_cli_bins', first)
+
+    def test_agy_archive_is_unpacked_without_extracting_paths(self):
+        for member_name, valid in [('antigravity', True), ('../antigravity', False)]:
+            with tempfile.TemporaryDirectory() as folder:
+                output = io.BytesIO()
+                with tarfile.open(fileobj=output, mode='w:gz') as archive:
+                    member = tarfile.TarInfo(member_name)
+                    member.size = 7
+                    archive.addfile(member, io.BytesIO(b'program'))
+                target = Path(folder) / 'bin/agy'
+                if valid:
+                    self.ns['install_agy_payload'](target, output.getvalue(), 'https://example.com/cli.tar.gz')
+                    self.assertEqual(target.read_bytes(), b'program')
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'executable'):
+                        self.ns['install_agy_payload'](target, output.getvalue(), 'https://example.com/cli.tar.gz')
+                    self.assertFalse(target.exists())
+
+    def test_agy_empty_download_does_not_overwrite_working_binary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'agy'
+            target.write_bytes(b'working')
+            with self.assertRaisesRegex(RuntimeError, 'empty'):
+                self.ns['install_agy_payload'](target, b'', 'https://example.com/agy')
+            self.assertEqual(target.read_bytes(), b'working')

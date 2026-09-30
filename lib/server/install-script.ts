@@ -58,6 +58,8 @@ export function pythonInstallScript(origin: string) {
 from __future__ import annotations
 
 import hashlib
+import io
+import tarfile
 import json
 import os
 import platform
@@ -385,6 +387,30 @@ def agy_binary_path():
     return Path.home() / ".local" / "bin" / "agy"
 
 
+def install_agy_payload(binary, payload, url):
+    # Linux/macOS manifests can point to tar.gz archives, not flat binaries.
+    # Read only the executable member; never extract archive paths or links.
+    if urllib.parse.urlsplit(url).path.endswith(".tar.gz"):
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            candidates = [member for member in archive.getmembers()
+                          if member.name in ("antigravity", "agy", "./antigravity", "./agy") and member.isfile()]
+            if len(candidates) != 1 or not 0 < candidates[0].size <= 512 * 1024 * 1024:
+                raise RuntimeError("Antigravity archive has no unique valid executable")
+            with archive.extractfile(candidates[0]) as source:
+                payload = source.read()
+    if not payload:
+        raise RuntimeError("Antigravity download is empty")
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    staging = binary.with_name(binary.name + ".download")
+    try:
+        staging.write_bytes(payload)
+        if os.name != "nt":
+            staging.chmod(0o755)
+        os.replace(staging, binary)
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 def install_antigravity():
     existing = which_cli("agy")
     if existing:
@@ -397,7 +423,7 @@ def install_antigravity():
     if os.name != "nt":
         try:
             completed = subprocess.run(
-                ["bash", "-lc", "curl -fsSL https://antigravity.google/cli/install.sh | bash"],
+                ["bash", "-o", "pipefail", "-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"],
                 timeout=180,
             )
             found = which_cli("agy")
@@ -413,14 +439,11 @@ def install_antigravity():
             raise RuntimeError("manifest missing url")
         print("Downloading Antigravity " + str(manifest.get("version") or "") + " from Google storage...")
         payload = fetch_bytes(url, timeout=180)
-        if sha:
-            digest = hashlib.sha512(payload).hexdigest()
-            if digest.lower() != sha.lower():
-                raise RuntimeError("Antigravity checksum mismatch")
-        binary.parent.mkdir(parents=True, exist_ok=True)
-        binary.write_bytes(payload)
-        if os.name != "nt":
-            binary.chmod(0o755)
+        if len(sha) != 128 or any(ch not in "0123456789abcdefABCDEF" for ch in sha):
+            raise RuntimeError("manifest missing valid SHA512 checksum")
+        if hashlib.sha512(payload).hexdigest().lower() != sha.lower():
+            raise RuntimeError("Antigravity checksum mismatch")
+        install_agy_payload(binary, payload, url)
         try:
             subprocess.run([str(binary), "install"], timeout=60, check=False)
         except Exception:
